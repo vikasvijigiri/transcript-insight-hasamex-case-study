@@ -7,6 +7,7 @@ backend/evals/results/
 backend/.mypy_cache/
 backend/.ruff_cache/
 backend/.pytest_cache/
+backend/.env
 *.pyc
 
 # Node / Next.js
@@ -25,3 +26,9 @@ Thumbs.db
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+.claude/
+.superpowers/
+CLAUDE.md
+AGENTS.md
+docs/superpowers/
