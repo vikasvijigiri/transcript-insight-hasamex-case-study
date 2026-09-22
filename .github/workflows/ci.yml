@@ -23,10 +23,6 @@ jobs:
       - run: ruff format --check app/ tests/ evals/
       - run: mypy app/
       - run: pytest -q
-        env:
-          # Tests never call a real LLM (the provider is mocked), but Settings()
-          # requires a non-empty key to construct the app at import time.
-          ANTHROPIC_API_KEY: ci-placeholder-not-a-real-key
 
   frontend:
     runs-on: ubuntu-latest

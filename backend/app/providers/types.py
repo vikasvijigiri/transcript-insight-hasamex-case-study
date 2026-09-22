@@ -38,10 +38,24 @@ GROUNDING_INSTRUCTION = (
 
 
 class Provider(Protocol):
-    """Every provider (Anthropic Citations API, or an OpenAI-compatible OSS
-    endpoint like Groq/HF) implements this one method. `main.py` only ever
-    talks to this interface."""
+    """Every provider (an OpenAI-compatible endpoint like Gemini/Groq/HF)
+    implements these methods. `main.py` only ever talks to this interface."""
 
     name: str
 
     def ask(self, docs: list[DocInput], prompt: str, max_tokens: int = 1024) -> AskResult: ...
+
+    def ask_batch(
+        self, docs: list[DocInput], prompts: list[str], max_tokens: int = 3000
+    ) -> list[AskResult]:
+        """Answer N independent prompts against the same document set in a single
+        underlying LLM call instead of N separate ones — used where a free-tier
+        rate limit (requests/minute) is the binding constraint, not tokens. Returns
+        one AskResult per prompt, in the same order."""
+        ...
+
+
+class ProviderCallError(Exception):
+    """Raised when a call to an LLM provider fails after retries. Route
+    handlers catch this and turn it into a clean HTTP error instead of a
+    raw 500 with an SDK stack trace."""

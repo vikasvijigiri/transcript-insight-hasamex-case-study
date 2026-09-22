@@ -1,7 +1,3 @@
-import os
-
-os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-not-real")
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,6 +25,13 @@ class FakeProvider:
         if self.results:
             return self.results.pop(0)
         return self._default
+
+    def ask_batch(self, docs, prompts, max_tokens=3000):
+        self.calls.append((docs, prompts))
+        out = []
+        for _ in prompts:
+            out.append(self.results.pop(0) if self.results else self._default)
+        return out
 
 
 @pytest.fixture

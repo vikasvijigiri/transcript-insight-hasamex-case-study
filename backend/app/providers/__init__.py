@@ -6,9 +6,8 @@ not a code change."""
 from functools import lru_cache
 
 from ..config import Settings, get_settings
-from .anthropic_provider import AnthropicProvider, ProviderCallError
 from .openai_compatible_provider import OpenAICompatibleProvider
-from .types import AskResult, DocInput, Provider, RawCitation
+from .types import AskResult, DocInput, Provider, ProviderCallError, RawCitation
 
 __all__ = [
     "AskResult",
@@ -22,8 +21,14 @@ __all__ = [
 
 
 def build_provider(settings: Settings) -> Provider:
-    if settings.llm_provider == "anthropic":
-        return AnthropicProvider(settings)
+    if settings.llm_provider == "gemini":
+        return OpenAICompatibleProvider(
+            name="gemini",
+            base_url=settings.gemini_base_url,
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            max_retries=settings.max_retries,
+        )
     if settings.llm_provider == "groq":
         return OpenAICompatibleProvider(
             name="groq",
@@ -42,7 +47,7 @@ def build_provider(settings: Settings) -> Provider:
         )
     raise ValueError(
         f"Unknown LLM_PROVIDER '{settings.llm_provider}'. Expected one of: "
-        "anthropic, groq, huggingface."
+        "gemini, groq, huggingface."
     )
 
 

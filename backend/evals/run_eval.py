@@ -5,7 +5,7 @@ the `pytest` suite (no network calls in unit tests):
 
     python -m evals.run_eval                      # uses LLM_PROVIDER from .env
     python -m evals.run_eval --provider groq       # override for one run
-    python -m evals.run_eval --compare anthropic groq huggingface
+    python -m evals.run_eval --compare gemini groq huggingface
 
 For each golden case it asks the configured provider the question against
 the relevant transcript(s), then checks:
@@ -39,7 +39,7 @@ from app.transcript_parser import load_transcript  # noqa: E402
 from evals.golden_cases import EvalCase, all_cases  # noqa: E402
 
 RESULTS_DIR = Path(__file__).parent / "results"
-MODEL_ATTR = {"anthropic": "claude_model", "groq": "groq_model", "huggingface": "hf_model"}
+MODEL_ATTR = {"gemini": "gemini_model", "groq": "groq_model", "huggingface": "hf_model"}
 
 
 def _docs_for(expert_id: str) -> list[DocInput]:
@@ -109,7 +109,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--provider", default=None, help="anthropic | groq | huggingface")
+    parser.add_argument("--provider", default=None, help="gemini | groq | huggingface")
     parser.add_argument(
         "--compare", nargs="+", default=None, help="Run and compare multiple providers"
     )

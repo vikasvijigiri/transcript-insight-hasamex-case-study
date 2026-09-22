@@ -1,9 +1,16 @@
 # Project Status
 
-**Last updated:** 2026-09-22 (status-check session) · **Last commit:** none yet — nothing committed to git so far
+**Last updated:** 2026-09-22 (provider swap session) · **Last commit:** `06bf031` — initial commit (79 files)
 
 ## Active
-- Nothing in progress right now; waiting on the user to add a real `ANTHROPIC_API_KEY` and run the app end-to-end with live data.
+- Nothing in progress right now; waiting on the user to add a real `GEMINI_API_KEY` and run the app end-to-end with live data.
+
+## Provider swap: Anthropic removed, Gemini added as default (2026-09-22)
+Diagnosed live: hitting `/api/experts/{id}/qa` (6 sequential Groq calls per request) reliably exhausted Groq's free-tier `openai/gpt-oss-120b` rate limit (8,000 tokens/minute), returning intermittent `429`s and `400 json_validate_failed`s. Compared free-tier OpenAI-compatible options (Gemini, Cerebras, OpenRouter, HF Inference Providers) and picked **Gemini 2.5 Flash** — 250K tokens/minute (31× Groq's ceiling), a real recurring daily quota rather than HF's $0.10/month spend-credit model.
+- Added a `gemini` entry to the existing `OpenAICompatibleProvider` factory (`backend/app/providers/__init__.py`, `config.py`) — no new provider class needed, same OpenAI-chat-completions wire protocol.
+- Made `gemini` the default `LLM_PROVIDER`; `groq`/`huggingface` remain available as manual fallbacks (no automatic runtime failover — a bigger feature, not built).
+- Removed the Anthropic provider entirely per explicit request: deleted `anthropic_provider.py`, moved `ProviderCallError` to `providers/types.py` (it was previously defined there and imported by the OpenAI-compatible provider), removed `anthropic_api_key`/`claude_model`/the Anthropic-only `request_timeout_seconds` field from `config.py`, removed the `anthropic` package from `requirements.txt`, updated `.env.example`, `README.md`, `evals/run_eval.py`, and `.github/workflows/ci.yml` (dropped the now-unnecessary `ANTHROPIC_API_KEY` CI env var). `pytest`/`ruff`/`mypy` all clean after the change.
+- This means the app no longer has an API-level exact-offset citation mechanism (Anthropic's Citations API) — grounding is now uniformly enforced via the verbatim-quote-JSON + substring-verification method for every provider, which was already the fallback path for Groq/HF.
 
 ## Status-check session (2026-09-22)
 Re-verified against the case-study brief (`references/hasamex_project.pdf`) and `Interview_Guide.txt` — all 5 required capabilities (interview-guide answers, exact quotes, timestamps, cross-expert themes/disagreements, free-form Q&A) are implemented and traceable per `CLAUDE.md`'s architecture. Ran the full verification matrix and found it green except two frontend lint issues, now fixed:
@@ -27,7 +34,7 @@ Re-verified against the case-study brief (`references/hasamex_project.pdf`) and 
 - Added `CLAUDE.md` (durable guidance: commands + architecture) via the built-in `init` skill.
 
 ## Next
-1. User adds a real `ANTHROPIC_API_KEY` to `backend/.env` and runs the full stack once against live data to sanity-check answer quality.
+1. User adds a real `GEMINI_API_KEY` to `backend/.env` and runs the full stack once against live data to sanity-check answer quality.
 2. Record the required demo video (architecture, model choice, citation/timestamp handling, hallucination mitigation, 3→30+ scaling story — all already written up in [README.md](README.md)).
 3. First git commit + push to a repo, once the user confirms they're ready (nothing has been committed yet — only created locally).
 4. Submit before the deadline: **25 Sept 2026, 11:00 IST**.

@@ -46,10 +46,9 @@ QUESTIONS = load_questions(INTERVIEW_GUIDE_FILE)
 def verify_quote(quote: str, transcript_raw: str) -> bool:
     """Guardrail applied to every citation regardless of provider: a cited
     span must literally appear in the source transcript we sent, or we drop
-    it rather than surface a possibly-mismatched quote. For the Anthropic
-    provider this is a belt-and-braces re-check on top of the Citations API;
-    for the OpenAI-compatible (Groq/HF) provider this check has already run
-    once inside the provider itself, so this is a second, cheap pass."""
+    it rather than surface a possibly-mismatched quote. The OpenAI-compatible
+    provider (Gemini/Groq/HF) already runs this same check once internally,
+    so this is a second, cheap pass."""
     return quote.strip() in transcript_raw
 
 
@@ -115,16 +114,22 @@ def expert_qa(expert_id: str, refresh: bool = False):
 
     provider = get_provider()
     doc = _doc_for(expert)
-    answers = []
-    for question in QUESTIONS:
-        prompt = (
+    prompts = [
+        (
             f'Interview-guide question: "{question}"\n\n'
             "Answer this question using ONLY what this expert said in the transcript "
             'document. If it is not addressed, answer exactly: "Not addressed in this '
             'transcript." Otherwise, answer in 1-3 concise sentences, grounded directly '
             "in a specific statement from the transcript."
         )
-        result = provider.ask([doc], prompt, max_tokens=400)
+        for question in QUESTIONS
+    ]
+    # One call answering all 6 interview-guide questions at once, instead of 6
+    # sequential calls — 6 calls per /qa request was enough on its own to exhaust a
+    # free-tier requests-per-minute budget (Groq: 30 RPM cap hit in practice).
+    results = provider.ask_batch([doc], prompts, max_tokens=3000)
+    answers = []
+    for question, result in zip(QUESTIONS, results, strict=True):
         citations = resolve_citations(result.raw_citations, [expert])
         answers.append(
             ExpertAnswer(question=question, answer=result.answer_text.strip(), citations=citations)
@@ -165,7 +170,7 @@ def themes(refresh: bool = False):
         "invent one.\n\n"
         "Ground every point in what a specific expert actually said."
     )
-    result = provider.ask(docs, prompt, max_tokens=1200)
+    result = provider.ask(docs, prompt, max_tokens=1600)
     citations = resolve_citations(result.raw_citations, EXPERTS)
 
     text = result.answer_text
@@ -188,6 +193,6 @@ def chat(req: ChatRequest):
         "don't contain the answer, say so explicitly instead of guessing. Ground the "
         "answer in specific statements from the relevant expert(s)."
     )
-    result = provider.ask(docs, prompt, max_tokens=800)
+    result = provider.ask(docs, prompt, max_tokens=1000)
     citations = resolve_citations(result.raw_citations, EXPERTS)
     return ChatResponse(answer=result.answer_text.strip(), citations=citations)
