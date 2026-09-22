@@ -1,0 +1,21 @@
+# Observability checklist
+
+Compiled 2026-09-22. Scoped honestly against this app's actual stage: a case-study demo with no real traffic yet, one FastAPI process, one Next.js process, not a distributed system. The bar throughout is "worth adding now, zero new infra" vs. "solves a problem this app doesn't have yet" — not a maximalist observability-platform wishlist.
+
+Same marking key: ✅ already correct · 🔧 real gap, worth fixing · ⏭️ deliberately out of scope, with the reason.
+
+## Worth adding now — all zero-infra, extend what already exists
+
+- 🔧 **Richer structured log fields on the LLM-calling endpoints.** The app already logs to stdout in structured form and already plans correlation/request IDs (backend checklist, §7c) — this extends that same log line, not a new system. Per-request, on `/qa`, `/themes`, `/chat`, and the new `/transcript`: input/output token counts, latency in ms, which provider answered (Anthropic/Groq/HF), cache hit or miss, error type/class if one occurred. Field naming follows OpenTelemetry's **GenAI Semantic Conventions** (`gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens`, etc.) — not because OTel itself is being adopted now, but so the field *names* already match the emerging standard, making a future real OTel migration a relabeling exercise instead of a rewrite.
+- 🔧 **Cache hit/miss as a log field**, not a metrics system. Directly a cost and latency signal (hit = no Anthropic call = $0; miss = paid LLM call) — cheap, given the cache layer and stdout logging already exist. At this app's request volume, per-request logging is the right granularity; the "aggregate into periodic counters" advice in cache-observability writing is aimed at high-volume caches this app isn't at.
+
+## Explicitly not doing now, with reasoning
+
+- ⏭️ **OpenTelemetry SDK/collector, distributed tracing.** The line current guidance draws is multi-service systems — tracing earns its keep following a request across process/network boundaries, typically cited around "5+ services." This app is one FastAPI process talking to one Next.js process over a single HTTP hop: not a distributed system. Correlation IDs + latency-annotated structured logs (above) give equivalent value without span/collector infrastructure. Revisit only if the architecture becomes actually distributed.
+- ⏭️ **Metrics dashboards / a metrics backend** (Prometheus/Grafana-class tooling). Nothing to chart without real traffic; the structured log fields above are sufufficient until there's volume worth aggregating.
+- ⏭️ **Frontend error-tracking service**, even a lightweight one (e.g. GlitchTip, a lighter Sentry-compatible alternative). Same reasoning already applied to Sentry in the backend checklist: the value of an error-tracking *service* is triaging errors from real users you don't have yet. Browser console + the existing per-panel `ErrorBoundary` is proportionate for a demo submission.
+- ⏭️ **Citation/groundedness-quality metrics** (hallucination flags, automated relevance scoring) as an observability concern. Current practice treats this as a further maturity stage teams add once token/cost/latency basics are in place — which is what's being added here. (A related but distinct idea — scoring citation accuracy *in the eval harness*, not in production observability — is addressed in `design/TESTING_QA_CHECKLIST.md`.)
+
+## The counterbalancing view, deliberately sought out
+
+A credible source (practitioner writing specifically making the case against premature observability tooling) frames it as several distinct concerns — logs, metrics, traces, errors, uptime — with different data shapes, where a unified stack only pays for itself once there's enough of *each* problem to justify the joint cost. Its argument: three of the five (logs, host metrics, job failures) are already covered by tools already in place here (stdout/Docker logs) with zero new infrastructure; only error tracking and uptime monitoring genuinely need external services, and only once there's traffic to generate signal. This directly validates the project's own existing reasoning for deferring Sentry — it's current best-practice thinking, not just pragmatic corner-cutting under deadline.
