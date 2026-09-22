@@ -55,11 +55,13 @@ Before designing, three research passes were run (product UX patterns, shadcn/ui
 ```
 
 - Left rail: fixed width (~240px), replaces the current top-tab nav. Three nav entries: "Expert Q&A" (expands to show the 3 experts as sub-items when active), "Themes & Disagreements", "Ask a Question".
-- Center panel: flexible width, renders whichever view is active — this is where `ExpertQAPanel`/`ThemesPanel`/`ChatPanel`'s content lives, redesigned visually but keeping their existing data-fetching logic (including the derived-loading-state fix already in place in `ExpertQAPanel.tsx`).
+- Center panel: flexible width, renders whichever view is active — this is where `ExpertQAPanel`/`ThemesPanel`/`ChatPanel`'s content lives, redesigned visually but keeping their existing data-fetching logic (including the derived-loading-state fix already in place in `ExpertQAPanel.tsx`). One behavior gap fixed as part of this redesign: currently a failed fetch just renders static red text with no way to recover short of reloading the page. Each panel's error state gets a "Try again" button that re-triggers the fetch — matching the retry affordance `ErrorBoundary.tsx` already has for render-time crashes, which fetch errors currently lack.
 - Source panel: fixed width (~380px, min 320px), always present on desktop. Default state (nothing clicked yet): shows the transcript of the currently active expert in Q&A mode, or a light placeholder ("Click a citation to see it in its original context") in Themes/Chat mode where no single expert is implied. On citation click (from anywhere — Q&A, Themes, or Chat), it switches to that citation's expert's transcript, scrolls to, and highlights the cited span.
 - No drag-to-resize. Fixed widths, per §3's research lesson.
 
 **Mobile/narrow (<1024px):** the top bar persists (title + theme toggle); the left rail collapses into a dropdown/menu beneath it (reusing the same nav entries). Source panel is not a persistent column — clicking a citation opens it as a bottom sheet (shadcn `Sheet`, `side="bottom"`) over the current view, dismissible, showing the same scrolled+highlighted transcript.
+
+**Tablet (768–1024px):** explicitly follows the mobile pattern above, not a third layout. This is called out on purpose: a fixed 380px source panel would crowd the center content at this width, so "persistent column" is reserved for `≥1024px` specifically, and everything below that — tablet included — uses the bottom-sheet behavior. Without this note it would've been easy to build only for "desktop" and "phone" and leave tablet an untested accident.
 
 ## 5. Component system
 
@@ -73,6 +75,7 @@ Before designing, three research passes were run (product UX patterns, shadcn/ui
 - **Palette**: neutral zinc/slate base (light + dark), matching the existing app's neutral instinct but formalized as design tokens. One accent color reserved *exclusively* for citation-related UI (chips, the highlighted span in the source panel, the "verified quote" affordance) so a citation is instantly recognizable anywhere it appears, never reused for unrelated UI (buttons, nav, etc.).
 - **Typography**: two-tier scale. UI chrome (nav, labels, buttons) stays compact sans-serif at current sizes. Transcript/quote/answer prose gets a slightly larger size and more line-height than UI chrome — this content is meant to be *read*, not scanned, and the current app treats both identically.
 - **Elevation**: soft card elevation (subtle shadow, not just a 1px border) for answer cards and the source panel, replacing the current flat `border-zinc-200` treatment everywhere.
+- **Motion**: the current app has zero transitions — every state change is an instant hard cut. CSS-only transitions (no new animation library; Tailwind's built-in `transition`/`duration`/`ease` utilities are sufficient at this scale): the highlighted quote fades in rather than snapping into existence, the mobile `Sheet` slides in/out (shadcn's default, kept as-is rather than customized), hover/focus states on buttons and citation chips transition rather than jump. Subtle, not decorative — nothing here should add perceptible delay to an interaction.
 - Full token values (hex/oklch, spacing scale, radius) are authored during implementation and recorded in `design/DESIGN_SYSTEM.md` (§9) — this spec fixes the *system*, not exact pixel/color values.
 
 ## 7. Backend addition
@@ -127,12 +130,13 @@ A `design/` folder at the repo root (sibling to `backend/`/`frontend/`):
 
 - `design/DESIGN_SYSTEM.md` — color tokens (light + dark, with hex/oklch values), type scale, spacing scale, and a **component inventory table**: every button/chip/panel/badge variant, which file it's defined in, where it's used, and an approximate instance count across the app.
 - `design/screenshots/` — PNGs captured live via Playwright against the running app (not mocked), covering:
-  - Expert Q&A: empty/loading (skeleton), loaded with a citation highlighted in the source panel, error state
+  - Expert Q&A: empty/loading (skeleton), loaded with a citation highlighted in the source panel, error state (with the new retry button), error state after clicking retry
   - Themes & Disagreements: loaded, error state
   - Ask a Question: empty, with an answer + citation shown
   - Source panel: default placeholder state, active highlighted state
-  - Mobile (<1024px): collapsed nav, source panel as bottom sheet
+  - Breakpoints: desktop (≥1024px), tablet (768–1024px, source panel as bottom sheet), mobile (<768px, collapsed nav)
   - Light and dark theme, for at least the Expert Q&A screen
+  - Edge-case content, not just the clean example data: a long expert answer, an answer with no citations (the existing "No direct quote found" state in `CitationChips.tsx`), and a long quote in the source panel to confirm the highlight/scroll still centers correctly when the cited span is large
 
 This substitutes for Figma/Penpot, which aren't connected in this environment (Figma needs an OAuth grant via claude.ai connector settings; no Penpot MCP is configured). If the user later connects one, this folder's content (especially the token table) is the source material to port over — nothing here is wasted by that.
 
@@ -141,6 +145,8 @@ This substitutes for Figma/Penpot, which aren't connected in this environment (F
 - New/changed frontend components get Vitest coverage following the existing pattern (`CitationChips.test.tsx`, `ErrorBoundary.test.tsx`): render + key interaction (e.g. clicking a citation triggers the expected callback), not exhaustive visual testing.
 - New backend endpoint gets a pytest case in `tests/test_main_api.py`'s style (or a new `test_transcript_endpoint.py`), asserting shape and 404 behavior — no live API calls, consistent with the rest of the suite.
 - Visual verification is the Playwright screenshot pass in §9 itself, checked against this spec's layout description before considering the redesign done.
+- **Accessibility**: choosing Radix primitives (§5) gives good defaults, but that's an assumption until checked, not a guarantee. Two checks, both via Playwright: (1) `@axe-core/playwright` run against each screen in §9's list, flagging any automated-detectable violation (contrast, missing labels, ARIA misuse); (2) a manual keyboard-only walkthrough — tab through the left rail, a citation chip, and the source panel/mobile sheet, confirming focus is always visible and nothing is a mouse-only trap.
+- **Performance**: a single Lighthouse pass (Chrome DevTools or `npx lighthouse`) against the built (`next build && next start`) app before considering the redesign done — not a CI gate, just a sanity check that the new shadcn/Radix/next-themes additions haven't introduced an obvious regression (e.g. render-blocking resources, layout shift from the theme toggle, unoptimized images). No specific numeric target set here; the bar is "no obvious regression from the pre-redesign baseline," which should itself be measured once for comparison.
 - Full existing verification matrix (`pytest`, `ruff`, `mypy`, `vitest`, `tsc`, `eslint`, `next build`) must stay green throughout — this is a redesign, not a rewrite; nothing here should regress the working grounding/citation logic.
 
 ## 11. Out of scope / explicitly deferred
