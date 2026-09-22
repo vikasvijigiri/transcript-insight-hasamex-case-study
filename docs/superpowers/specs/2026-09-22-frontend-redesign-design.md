@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-22
 **Status:** approved for planning
-**Scope:** `frontend/` visual/UX redesign + one small `backend/` addition. No changes to grounding, citation resolution, or verification logic anywhere.
+**Scope:** `frontend/` visual/UX redesign + `backend/` additions (one new endpoint, one schema field) and hardening (rate limiting, dead-endpoint removal, dependency tooling — §7c). No changes to grounding, citation resolution, or verification logic anywhere.
 
 ## 1. Context
 
@@ -16,7 +16,7 @@ This spec covers a redesign that makes the citation-grounding guarantee *visible
 - No new *state management* library (Redux/Zustand/etc. — React state is sufficient at this scale). **Revised after best-practice review**: SWR (a small data-fetching/caching library, not a state manager) is adopted for the panels' fetch logic — see §5. This is a deliberate exception, not a scope-creep reversal: Next.js's own current docs recommend a client cache library for exactly this app's pattern (repeated, click-triggered fetches switching between 3 experts), and it's additive to, not a replacement of, plain React state elsewhere.
 - No drag-to-resize panels (see §5 — deliberately cut after research).
 - No inline citation markers embedded in answer prose (`[1]`-style). The existing data shape — an answer plus a separate `citations: Citation[]` list — is kept as-is; only its presentation changes.
-- No backend auth/rate-limiting/deployment changes.
+- No backend auth or deployment/infrastructure changes (reverse proxy, gateway, orchestration — see §12). **Revised after the separate backend best-practices audit**: rate limiting *is* now in scope (§7c) — it was excluded here on the original assumption that backend changes would stay minimal, but the audit found real cost-abuse exposure (unlimited paid Anthropic calls) that outweighs that minimalism. Everything else in this line still holds: no auth system, no deployment topology changes.
 
 ## 3. Research grounding
 
@@ -85,9 +85,9 @@ Before designing, three research passes were run (product UX patterns, shadcn/ui
 - **Accessibility numbers, not vibes**: contrast ≥4.5:1 for normal text, ≥3:1 for large text/UI components (WCAG 2.2 AA); interactive touch targets (buttons, citation chips) ≥44×44px, especially on mobile — well above WCAG's 24×24px floor, matching current industry practice; focus rings ≥3:1 contrast against their background and never fully obscured by another element.
 - Full token values (hex/oklch, spacing scale, radius) are authored during implementation and recorded in `design/DESIGN_SYSTEM.md` (§9) — this spec fixes the *system*, not exact pixel/color values.
 
-## 7. Backend addition
+## 7. Backend addition & hardening
 
-Two additive-only changes — still zero changes to `resolve_citations`'s or `verify_quote`'s actual logic, just surfacing data those functions already compute but currently discard before it reaches the client.
+Three changes: two additive-only (7a, 7b — zero changes to `resolve_citations`'s or `verify_quote`'s actual logic, just surfacing data those functions already compute but currently discard before it reaches the client), plus a bundle of hardening items from a separate best-practices audit (7c — includes one deletion, dependency tooling, and lightweight middleware).
 
 **7a. New endpoint:**
 
@@ -119,6 +119,18 @@ class Citation(BaseModel):
 `resolve_citations` in `main.py` already has `rc.start_char_index` in scope when it builds each `Citation` (it's what `timestamp_for_offset` is called with) — currently that value is used once, to derive the timestamp string, and then dropped. Keeping it on the response means the frontend uses the exact location the backend already resolved, instead of re-deriving it via string search (see §8). One field addition, no behavior change to grounding/verification — `verify_quote` still runs exactly as before; this only stops throwing away a number it already has.
 
 Both changes get pytest coverage: the new endpoint's shape/404 behavior, and an assertion that `/qa`, `/themes`, `/chat` responses now include `start_char` on their citations — following the existing test file patterns (no live API calls).
+
+**7c. Backend hardening, from a separate best-practices audit** (full reasoning in `design/BACKEND_BEST_PRACTICES_CHECKLIST.md`) — bundled in here since it's the natural place for backend changes in this pass, distinct from the endpoint/schema additions above:
+
+- **Delete `GET /api/interview-guide`**: confirmed dead (grepped the frontend — never called). OWASP API9 "Improper Inventory Management" territory, not a judgment call.
+- **Rate limiting via `slowapi`**: two (soon three, with `/transcript`) endpoints make paid, per-request Anthropic calls with zero limiting today — OWASP API4 "Unrestricted Resource Consumption." Per-IP limits on the Anthropic-calling endpoints specifically, not the whole app; no Redis needed at single-process scale.
+- **`TrustedHostMiddleware`**: one line, guards Host-header attacks, cheap given there's no reverse proxy in front doing this already (see §12 for why no reverse proxy is being added).
+- **Correlation/request ID**: server-generated (never trust an inbound header), attached to every log line and returned in a response header — the next real increment on the structured logging that already exists.
+- **Gate `/docs`/`/openapi.json`** behind an environment check (`docs_url=None` outside dev) — cheap, stops handing over the full endpoint/schema map for free recon.
+- **Dependency management**: migrate `requirements.txt`'s unpinned version ranges to `uv` with a committed lockfile, for reproducible builds. This also means updating `CLAUDE.md`'s documented dev commands (`python -m venv .venv` / `pip install -r requirements-dev.txt` → the `uv` equivalents) as part of the same change, not leaving them stale.
+- Explicitly **not** doing, with reasoning (see checklist for full detail): API versioning (`/v1/`, no external consumer to protect), RFC 9457 structured errors (overkill for one consumer), converting sync routes to `async def` (current sync `def` usage is what FastAPI's own docs recommend here), multiple uvicorn workers (Docker Compose already owns replication, don't double-manage it), app-layer security headers (correctly a reverse-proxy concern, and there's no reverse proxy by design — see §12), Sentry/uptime monitoring (nothing to triage without real traffic yet).
+
+These get the same test discipline as everything else: rate-limit behavior and the deleted endpoint's absence covered by pytest, no change to the existing suite's no-live-API-calls constraint.
 
 ## 8. Citation → source highlight mechanism
 
@@ -173,3 +185,6 @@ Small, cheap, unrelated to the visual redesign but caught while researching curr
 - Any new backend endpoints beyond §7a's single addition.
 - Server-side fetching of the initial expert list (converting `page.tsx`'s server/client boundary). Real current-best-practice win, explicitly declined for this pass: meaningfully more implementation risk than anything else in this spec, for a first-paint gain that's marginal on a same-machine dev/demo setup, against a 3-day deadline.
 - `loading.tsx`/`error.tsx` Next.js file conventions and Suspense streaming across panels — both genuinely current best practice, but both are route-segment-based, and this app's 3 tabs are client-side view state within one route, not separate routes. Adopting either would require restructuring tabs into real routes, out of scope for this redesign.
+- **Reverse proxy / API gateway** (nginx/Caddy/Traefik) in front of Docker Compose. All three backend-audit research passes converged independently on the same conclusion: this earns its keep once there's a real domain needing TLS, multiple backend replicas, or routing across several services — none of which apply to 1 backend + 1 frontend in Docker Compose. Adding one now would be exactly the premature infrastructure complexity "Choose Boring Technology" and "MonolithFirst" argue against. If this ever becomes a real deployment with a domain, Caddy (near-zero-config automatic HTTPS) is the minimum viable addition — not decided now, just the answer if asked later.
+- **API versioning** (`/v1/` prefix) — protects external, decoupled consumers from breaking changes; this API has exactly one consumer (its own frontend, same repo, deployed together). Add if a second independent consumer ever appears.
+- **RFC 9457 structured error responses**, **Sentry/uptime monitoring**, **app-layer security headers** — each individually justified in `design/BACKEND_BEST_PRACTICES_CHECKLIST.md`, each deferred for the same shape of reason: real value only once this has multiple consumers, real traffic, or a public deployment topology it doesn't have yet.
