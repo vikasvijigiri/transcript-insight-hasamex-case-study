@@ -186,7 +186,7 @@ def resolve_rag_citations(
         resolved.append(
             Citation(
                 expert_id=source.doc.expert_id,
-                expert_name=source.doc.expert_id,
+                expert_name=_expert_name(source.doc.expert_id),
                 quote=quote,
                 timestamp=source.timestamp_for_offset(source_offset),
             )
@@ -372,7 +372,7 @@ def expert_transcript(expert_id: str, principal: CurrentPrincipal, session: Data
             raise HTTPException(404, "Expert call not found or not accessible") from None
         return {
             "expert_id": call.expert_id,
-            "expert_name": call.expert_id,
+            "expert_name": _expert_name(call.expert_id),
             "role": call.role or "Expert call",
             "market": call.market or "Unspecified market",
             "raw_text": version.raw_text,
@@ -571,11 +571,11 @@ def expert_qa(
             raise HTTPException(404, "Expert call not found or not accessible") from None
         expert = {
             "id": call.expert_id,
-            "name": call.expert_id,
+            "name": _expert_name(call.expert_id),
             "role": call.role or "Expert call",
             "market": call.market or "Unspecified market",
         }
-        doc = DocInput(expert_id=call.expert_id, title=call.expert_id, text=version.raw_text)
+        doc = DocInput(expert_id=call.expert_id, title=expert["name"], text=version.raw_text)
     else:
         try:
             expert = get_expert(expert_id)
