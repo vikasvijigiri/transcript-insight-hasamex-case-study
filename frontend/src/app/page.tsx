@@ -114,34 +114,7 @@ function Workspace() {
           </div>
         </header>
 
-        <div className="px-6 py-6 sm:px-9 lg:px-10 lg:py-7">
-          <section className="grid gap-5 border-b border-slate-200/80 pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-            <div>
-              <p className="text-[11px] font-bold tracking-[0.14em] text-[#43827a]">
-                EUROPEAN MEDTECH RESEARCH · 2026
-              </p>
-              <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-                Robotic surgery market evidence
-              </h1>
-              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">
-                Compare what buyers and users say across France, Germany, and the UK—every finding linked to its original call record.
-              </p>
-            </div>
-            <div className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-              {[
-                [String(experts.length || "—"), "expert calls"],
-                [String(questionCount ?? "—"), "guide questions"],
-                ["100%", "traceable"],
-              ].map(([value, label]) => (
-                <div key={label} className="rounded-xl bg-slate-50 px-3 py-3 text-center">
-                  <p className="text-lg font-semibold tracking-tight text-slate-900">{value}</p>
-                  <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                    {label}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
+        <div className="px-6 py-5 sm:px-9 lg:px-10 lg:py-6">
 
           {error && (
             <div className="mt-6 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -152,7 +125,7 @@ function Workspace() {
 
           <nav
             aria-label="Research views"
-            className="mt-5 flex gap-1 overflow-x-auto border-b border-slate-200/80 pb-px"
+            className="mt-5 flex items-center gap-1 overflow-x-auto border-b border-slate-200/80 pb-px"
           >
             {tabs.map((item, index) => (
               <button
@@ -177,6 +150,18 @@ function Workspace() {
                 )}
               </button>
             ))}
+            <div className="ml-auto hidden shrink-0 items-center gap-4 px-3 text-right lg:flex">
+              {[
+                [String(experts.length || "—"), "calls"],
+                [String(questionCount ?? "—"), "questions"],
+                ["100%", "traceable"],
+              ].map(([value, label]) => (
+                <span key={label} className="text-xs text-slate-500">
+                  <strong className="mr-1 font-semibold text-slate-800">{value}</strong>
+                  {label}
+                </span>
+              ))}
+            </div>
           </nav>
 
           <main className="mt-6">
