@@ -586,6 +586,9 @@ def expert_qa(
     if not refresh:
         cached = cache.read_cache(cache_key)
         if cached:
+            # Display metadata is resolved at read time so old cached analyses
+            # inherit corrected source-profile names without triggering an LLM call.
+            cached["expert_name"] = expert["name"]
             return cached
 
     try:
