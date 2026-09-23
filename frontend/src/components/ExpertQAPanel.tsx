@@ -175,7 +175,10 @@ export default function ExpertQAPanel({ experts }: { experts: ExpertMeta[] }) {
 
   const currentError = error?.id === activeId ? error.message : null;
   const loading = activeId !== "" && !currentError && data?.expert_id !== activeId;
-  const nextMarket = sourceProfiles.find((expert) => expert.id === activeId)?.market;
+  const activeExpert = sourceProfiles.find((expert) => expert.id === activeId);
+  const nextMarket = activeExpert?.market;
+  const displayName =
+    data?.expert_name === data?.expert_id ? activeExpert?.name ?? data.expert_name : data?.expert_name;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[248px_minmax(0,1fr)_300px]">
@@ -259,7 +262,7 @@ export default function ExpertQAPanel({ experts }: { experts: ExpertMeta[] }) {
           >
             <div className="flex flex-col gap-3 rounded-2xl border border-[#d9e8e5] bg-[#eff7f5] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-900">{data.expert_name}</p>
+                <p className="text-sm font-semibold text-slate-900">{displayName}</p>
                 <p className="mt-1 text-xs text-[#39766f]">
                   {data.role} · {data.market} market perspective · 6 guide questions
                 </p>
