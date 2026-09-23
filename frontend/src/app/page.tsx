@@ -114,7 +114,7 @@ function Workspace() {
           </div>
         </header>
 
-        <div className="px-6 py-5 sm:px-9 lg:px-10 lg:py-6">
+        <div className="px-6 py-3 sm:px-9 lg:px-10">
 
           {error && (
             <div className="mt-6 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -125,7 +125,7 @@ function Workspace() {
 
           <nav
             aria-label="Research views"
-            className="mt-5 flex items-center gap-1 overflow-x-auto border-b border-slate-200/80 pb-px"
+            className="mt-3 flex items-center gap-1 overflow-x-auto border-b border-slate-200/80 pb-px"
           >
             {tabs.map((item, index) => (
               <button
