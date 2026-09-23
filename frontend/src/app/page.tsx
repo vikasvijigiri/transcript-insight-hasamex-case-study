@@ -56,6 +56,7 @@ function Workspace() {
   const [tab, setTab] = useState<Tab>("qa");
   const [experts, setExperts] = useState<ExpertMeta[]>([]);
   const [questionCount, setQuestionCount] = useState<number | null>(null);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const activeTab = tabs.find((item) => item.id === tab)!;
 
@@ -65,9 +66,11 @@ function Workspace() {
       .then(([sourceExperts, guide]) => {
         setExperts(sourceExperts);
         setQuestionCount(guide.questions.length);
+        setSourcesLoaded(true);
       })
       .catch((reason) => {
         if (!isAbortError(reason)) setError(String(reason));
+        setSourcesLoaded(true);
       });
     return () => controller.abort();
   }, []);
@@ -178,7 +181,9 @@ function Workspace() {
               {tab === "qa" && experts.length > 0 && <ExpertQAPanel experts={experts} />}
               {tab === "qa" && experts.length === 0 && !error && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-                  Loading source profiles…
+                  {sourcesLoaded
+                    ? "No expert calls have been ingested into this protected workspace yet."
+                    : "Loading source profiles..."}
                 </div>
               )}
               {tab === "themes" && <ThemesPanel />}
