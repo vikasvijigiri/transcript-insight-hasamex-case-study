@@ -22,6 +22,7 @@ from .logging_config import configure_logging, get_logger
 from .models import Call, DocumentVersion, Project, SourceDocument
 from .observability import (
     configure_tracing,
+    dashboard_snapshot,
     observe_http,
     prometheus_response,
     record_citations,
@@ -38,6 +39,7 @@ from .schemas import (
     ExpertQAResponse,
     IngestionResponse,
     IngestTranscriptRequest,
+    ObservabilitySnapshot,
     ProjectAskRequest,
     RetrievalRequest,
     RetrievedEvidence,
@@ -293,6 +295,12 @@ def metrics(request: Request):
     ):
         raise HTTPException(401, "Metrics token required")
     return prometheus_response()
+
+
+@app.get("/api/observability", response_model=ObservabilitySnapshot)
+def observability_dashboard(_: CurrentPrincipal):
+    """Return browser-safe operational totals for an authenticated workspace user."""
+    return dashboard_snapshot()
 
 
 @app.get("/api/experts")

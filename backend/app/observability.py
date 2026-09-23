@@ -92,6 +92,36 @@ def prometheus_response() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
+def _counter_total(counter: Counter, name: str, labels: dict[str, str] | None = None) -> int:
+    """Read a low-cardinality counter without exposing Prometheus text to browsers."""
+    return int(
+        sum(
+            sample.value
+            for metric in counter.collect()
+            for sample in metric.samples
+            if sample.name == name
+            and (
+                labels is None
+                or all(sample.labels.get(key) == value for key, value in labels.items())
+            )
+        )
+    )
+
+
+def dashboard_snapshot() -> dict[str, int]:
+    """Return the safe aggregate values used by the authenticated application UI."""
+    return {
+        "requests": _counter_total(HTTP_REQUESTS, "hasamex_http_requests_total"),
+        "retrievals": _counter_total(RETRIEVALS, "hasamex_retrieval_requests_total"),
+        "verifiedCitations": _counter_total(
+            CITATIONS, "hasamex_citations_total", {"outcome": "verified"}
+        ),
+        "rejectedCitations": _counter_total(
+            CITATIONS, "hasamex_citations_total", {"outcome": "rejected"}
+        ),
+    }
+
+
 def record_ingestion(project: str, *, created: bool, turns: int, passages: int) -> None:
     if not created:
         return

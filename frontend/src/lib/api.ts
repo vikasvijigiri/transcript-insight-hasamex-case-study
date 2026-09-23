@@ -85,15 +85,6 @@ async function authHeaders(): Promise<HeadersInit> {
   return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {};
 }
 
-function metricTotal(metrics: string, metric: string, label?: string): number {
-  const rows = metrics.split("\n").filter((row) => row.startsWith(`${metric}{`) || row.startsWith(`${metric} `));
-  return rows.reduce((total, row) => {
-    if (label && !row.includes(label)) return total;
-    const value = Number(row.trim().split(/\s+/).at(-1));
-    return total + (Number.isFinite(value) ? value : 0);
-  }, 0);
-}
-
 export const api = {
   listExperts: (
     options: { query?: string; offset?: number; limit?: number; signal?: AbortSignal } = {},
@@ -127,23 +118,7 @@ export const api = {
     getJSON<TranscriptResponse>(`/api/experts/${expertId}/transcript`, signal),
   themes: (signal?: AbortSignal) => getJSON<ThemesResponse>("/api/themes", signal),
   observability: async (signal?: AbortSignal): Promise<ObservabilitySnapshot> => {
-    if (!API_BASE) {
-      throw new ApiError("The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.");
-    }
-    return withTimeout(async (requestSignal) => {
-      const response = await fetch(`${API_BASE}/metrics`, {
-        signal: requestSignal,
-        headers: await authHeaders(),
-      });
-      if (!response.ok) throw new ApiError("Metrics endpoint is unavailable.", response.status);
-      const metrics = await response.text();
-      return {
-        requests: metricTotal(metrics, "hasamex_http_requests_total"),
-        retrievals: metricTotal(metrics, "hasamex_retrieval_requests_total"),
-        verifiedCitations: metricTotal(metrics, "hasamex_citations_total", 'outcome="verified"'),
-        rejectedCitations: metricTotal(metrics, "hasamex_citations_total", 'outcome="rejected"'),
-      };
-    }, signal);
+    return getJSON<ObservabilitySnapshot>("/api/observability", signal);
   },
   chat: async (question: string): Promise<ChatResponse> => {
     if (!API_BASE) {

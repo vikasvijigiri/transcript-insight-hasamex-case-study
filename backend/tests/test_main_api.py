@@ -40,6 +40,17 @@ def test_metrics_endpoint_exposes_privacy_safe_rag_metrics(client):
     assert "Transcript_" not in response.text
 
 
+def test_authenticated_observability_dashboard_returns_aggregate_metrics(client):
+    response = client.get("/api/observability")
+    assert response.status_code == 200
+    assert response.json().keys() == {
+        "requests",
+        "retrievals",
+        "verifiedCitations",
+        "rejectedCitations",
+    }
+
+
 def test_list_experts(client):
     res = client.get("/api/experts")
     assert res.status_code == 200

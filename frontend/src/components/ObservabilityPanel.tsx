@@ -27,7 +27,7 @@ export default function ObservabilityPanel() {
           setError(null);
         })
         .catch((reason) => {
-          if (!isAbortError(reason)) setError("Metrics endpoint is unavailable.");
+          if (!isAbortError(reason)) setError("Live operational metrics could not be loaded.");
         });
     refresh();
     const intervalId = window.setInterval(refresh, 5000);
