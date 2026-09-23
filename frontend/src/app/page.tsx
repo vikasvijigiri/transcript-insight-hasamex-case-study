@@ -57,6 +57,8 @@ function Workspace() {
   const [experts, setExperts] = useState<ExpertMeta[]>([]);
   const [questionCount, setQuestionCount] = useState<number | null>(null);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const [sampleImporting, setSampleImporting] = useState(false);
+  const [sampleImportError, setSampleImportError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeTab = tabs.find((item) => item.id === tab)!;
 
@@ -76,6 +78,20 @@ function Workspace() {
   }, []);
 
   const markets = experts.map((expert) => expert.market).join(" · ");
+
+  async function importBundledCaseStudy() {
+    setSampleImporting(true);
+    setSampleImportError(null);
+    try {
+      await api.importSampleCorpus();
+      const sourceExperts = await api.listExperts({ limit: 25 });
+      setExperts(sourceExperts);
+    } catch (reason) {
+      setSampleImportError(String(reason));
+    } finally {
+      setSampleImporting(false);
+    }
+  }
 
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
@@ -181,9 +197,25 @@ function Workspace() {
               {tab === "qa" && experts.length > 0 && <ExpertQAPanel experts={experts} />}
               {tab === "qa" && experts.length === 0 && !error && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-                  {sourcesLoaded
-                    ? "No expert calls have been ingested into this protected workspace yet."
-                    : "Loading source profiles..."}
+                  {sourcesLoaded ? (
+                    <div className="max-w-xl">
+                      <p className="font-semibold text-slate-800">No expert calls in this workspace yet.</p>
+                      <p className="mt-2 leading-6">
+                        Import the three bundled case-study calls into your protected workspace. They remain isolated to your account.
+                      </p>
+                      <button
+                        className="mt-4 cursor-pointer rounded-xl bg-[#19243a] px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={sampleImporting}
+                        onClick={() => void importBundledCaseStudy()}
+                        type="button"
+                      >
+                        {sampleImporting ? "Importing 3 calls..." : "Import the 3 case-study calls"}
+                      </button>
+                      {sampleImportError && <p className="mt-3 text-xs text-red-600">{sampleImportError}</p>}
+                    </div>
+                  ) : (
+                    "Loading source profiles..."
+                  )}
                 </div>
               )}
               {tab === "themes" && <ThemesPanel />}

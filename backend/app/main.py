@@ -41,6 +41,7 @@ from .schemas import (
     ProjectAskRequest,
     RetrievalRequest,
     RetrievedEvidence,
+    SampleCorpusResponse,
     ThemesResponse,
 )
 from .transcript_parser import load_transcript
@@ -212,6 +213,14 @@ def _doc_for(expert: dict) -> DocInput:
     )
 
 
+def _expert_name(expert_id: str) -> str:
+    """Return bundled case-study names while preserving arbitrary uploaded IDs."""
+    try:
+        return str(get_expert(expert_id)["name"])
+    except KeyError:
+        return expert_id
+
+
 def _project_expert(
     session: Session, *, tenant_id: str, project_name: str, expert_id: str
 ) -> tuple[Call, DocumentVersion]:
@@ -328,7 +337,7 @@ def list_experts(
         return [
             {
                 "id": call.expert_id,
-                "name": call.expert_id,
+                "name": _expert_name(call.expert_id),
                 "role": call.role or "Expert call",
                 "market": call.market or "Unspecified market",
             }
@@ -408,6 +417,50 @@ def ingest_transcript(
         turn_count=result.turn_count,
         passage_count=result.passage_count,
     )
+
+
+@app.post("/api/projects/{project_name}/sample-corpus", response_model=SampleCorpusResponse)
+def import_sample_corpus(
+    project_name: str,
+    session: DatabaseSession,
+    principal: WritePrincipal,
+):
+    """Import the bundled three-call case study into only the caller's tenant.
+
+    Repeating the request is safe: content-hash ingestion returns existing
+    versions instead of duplicating source records.
+    """
+    ingestion = TranscriptIngestionService(
+        session,
+        passage_max_tokens=settings.ingestion_passage_max_tokens,
+        parent_max_tokens=settings.ingestion_parent_max_tokens,
+    )
+    imported = 0
+    existing = 0
+    expert_ids: list[str] = []
+    for expert in EXPERTS:
+        expert_id = str(expert["id"])
+        transcript = load_transcript(expert_id, Path(str(expert["file"])))
+        result = ingestion.ingest_text(
+            tenant_id=principal.tenant_id,
+            project_name=project_name,
+            external_key=f"bundled-case-study-{expert_id}",
+            filename=Path(str(expert["file"])).name,
+            expert_id=expert_id,
+            raw_text=transcript.raw_text,
+            market=str(expert["market"]),
+            role=str(expert["role"]),
+        )
+        imported += int(result.created)
+        existing += int(not result.created)
+        expert_ids.append(expert_id)
+        record_ingestion(
+            project_name,
+            created=result.created,
+            turns=result.turn_count,
+            passages=result.passage_count,
+        )
+    return SampleCorpusResponse(imported=imported, already_present=existing, expert_ids=expert_ids)
 
 
 @app.post("/api/projects/{project_name}/retrieve", response_model=list[RetrievedEvidence])

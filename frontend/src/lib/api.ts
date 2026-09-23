@@ -61,6 +61,12 @@ export type ObservabilitySnapshot = {
   rejectedCitations: number;
 };
 
+export type SampleCorpusResponse = {
+  imported: number;
+  already_present: number;
+  expert_ids: string[];
+};
+
 async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (!API_BASE) {
     throw new ApiError("The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.");
@@ -101,6 +107,20 @@ export const api = {
   },
   interviewGuide: (signal?: AbortSignal) =>
     getJSON<{ questions: string[] }>("/api/interview-guide", signal),
+  importSampleCorpus: () =>
+    withTimeout(async (signal) => {
+      if (!API_BASE) {
+        throw new ApiError("The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.");
+      }
+      const response = await fetch(`${API_BASE}/api/projects/Robotics/sample-corpus`, {
+        method: "POST",
+        signal,
+        headers: await authHeaders(),
+      });
+      if (response.status === 401) throw new ApiError("Your session has expired. Please sign in again.", 401);
+      if (!response.ok) throw new ApiError("Unable to import the case-study calls right now.", response.status);
+      return response.json() as Promise<SampleCorpusResponse>;
+    }),
   expertQA: (expertId: string, signal?: AbortSignal) =>
     getJSON<ExpertQAResponse>(`/api/experts/${expertId}/qa`, signal),
   transcript: (expertId: string, signal?: AbortSignal) =>

@@ -47,6 +47,19 @@ def test_list_experts(client):
     assert ids == {"france", "germany", "uk"}
 
 
+def test_sample_corpus_import_is_tenant_scoped_and_idempotent(client):
+    first = client.post("/api/projects/Robotics/sample-corpus")
+    assert first.status_code == 200
+    assert first.json()["imported"] == 3
+    assert first.json()["already_present"] == 0
+    assert set(first.json()["expert_ids"]) == {"france", "germany", "uk"}
+
+    second = client.post("/api/projects/Robotics/sample-corpus")
+    assert second.status_code == 200
+    assert second.json()["imported"] == 0
+    assert second.json()["already_present"] == 3
+
+
 def test_transcript_endpoint_returns_the_original_source_record(client):
     res = client.get("/api/experts/france/transcript")
     assert res.status_code == 200

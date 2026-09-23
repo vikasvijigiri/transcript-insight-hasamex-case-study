@@ -61,6 +61,12 @@ class IngestionResponse(BaseModel):
     passage_count: int
 
 
+class SampleCorpusResponse(BaseModel):
+    imported: int
+    already_present: int
+    expert_ids: list[str]
+
+
 class RetrievalRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2_000)
     filters: dict[str, str] = Field(default_factory=dict, max_length=10)
