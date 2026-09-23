@@ -1,10 +1,11 @@
 .venv
+.env
 __pycache__
-*.pyc
+**/__pycache__
+data
+app/data/cache
+tests
+evals
 .pytest_cache
 .mypy_cache
 .ruff_cache
-tests
-evals/results
-app/data/cache
-.env

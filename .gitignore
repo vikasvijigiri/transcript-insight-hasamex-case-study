@@ -20,6 +20,13 @@ frontend/out/
 backend/.env
 frontend/.env*.local
 
+# Local development process output
+backend/*_stdout.log
+backend/*_stderr.log
+backend/data/*.db
+frontend/*_stdout.log
+frontend/*_stderr.log
+
 # OS
 .DS_Store
 Thumbs.db

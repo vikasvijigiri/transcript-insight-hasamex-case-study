@@ -2,6 +2,8 @@
 
 import { Component, ReactNode } from "react";
 
+import { reportClientFailure } from "@/lib/telemetry";
+
 type Props = { children: ReactNode };
 type State = { error: Error | null };
 
@@ -21,6 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: { componentStack?: string | null }) {
     console.error("Unhandled UI error:", error, info.componentStack);
+    reportClientFailure("ui_error", error);
   }
 
   render() {

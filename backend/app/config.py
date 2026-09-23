@@ -9,7 +9,7 @@ mutating process env vars.
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,13 +43,52 @@ class Settings(BaseSettings):
     )
 
     # Comma-separated list of allowed origins, e.g. "http://localhost:3000,https://app.example.com"
-    cors_origins: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000", alias="CORS_ORIGINS"
+    )
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     # Retry count for transient LLM provider failures (rate limits, connection
     # errors, 5xx) — shared by all providers via OpenAICompatibleProvider.
     max_retries: int = Field(default=3, alias="LLM_MAX_RETRIES")
+    llm_max_concurrent_requests: int = Field(
+        default=4, ge=1, le=64, alias="LLM_MAX_CONCURRENT_REQUESTS"
+    )
+    max_request_bytes: int = Field(default=2_000_000, ge=1_024, alias="MAX_REQUEST_BYTES")
+
+    # Persistence is deliberately database-agnostic: SQLite keeps local
+    # development frictionless, while the same ORM models run on PostgreSQL.
+    database_url: str = Field(default="sqlite:///./data/hasamex.db", alias="DATABASE_URL")
+    ingestion_passage_max_tokens: int = Field(
+        default=420, ge=100, alias="INGESTION_PASSAGE_MAX_TOKENS"
+    )
+    ingestion_parent_max_tokens: int = Field(
+        default=1800, ge=500, alias="INGESTION_PARENT_MAX_TOKENS"
+    )
+    otel_service_name: str = Field(default="hasamex-api", alias="OTEL_SERVICE_NAME")
+    otel_exporter_otlp_endpoint: str = Field(default="", alias="OTEL_EXPORTER_OTLP_ENDPOINT")
+    auto_create_schema: bool = Field(default=True, alias="AUTO_CREATE_SCHEMA")
+    seed_demo_corpus: bool = Field(default=True, alias="SEED_DEMO_CORPUS")
+    rag_full_corpus_max_characters: int = Field(
+        default=20_000, ge=0, alias="RAG_FULL_CORPUS_MAX_CHARACTERS"
+    )
+
+    # Authentication is deliberately opt-in locally and mandatory in deployed
+    # environments. Supabase uses Google as the identity provider; this API only
+    # accepts Supabase-issued access tokens and verifies them against its JWKS.
+    auth_required: bool = Field(default=False, alias="AUTH_REQUIRED")
+    supabase_url: str = Field(default="", alias="SUPABASE_URL")
+    supabase_jwt_audience: str = Field(default="authenticated", alias="SUPABASE_JWT_AUDIENCE")
+    metrics_token: str = Field(default="", alias="METRICS_TOKEN")
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        if self.auth_required and not self.supabase_url:
+            raise ValueError("SUPABASE_URL is required when AUTH_REQUIRED=true")
+        if self.auth_required and not self.metrics_token:
+            raise ValueError("METRICS_TOKEN is required when AUTH_REQUIRED=true")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -18,6 +18,10 @@
     "sequential-thinking": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "penpot": {
+      "type": "http",
+      "url": "https://design.penpot.app/mcp/stream?userToken=${PENPOT_MCP_KEY}"
     }
   }
 }

@@ -1,26 +1,61 @@
-"""Tiny disk cache for the pre-computable results (per-expert Q&A, cross-expert
-themes). This exists for two practical reasons for a demo app:
-  1. Reproducibility — the answers shown in the recorded demo video don't
-     change if the endpoint is hit again.
-  2. Cost/latency — re-running the full extraction on every page load would
-     mean 18+ live API calls just to render the main screen.
-Pass ?refresh=true to bypass the cache and recompute against the live API.
+"""Small, safe local cache used by the development deployment.
+
+Production workers should use Redis or a database-backed analysis-run store. This
+module makes local results reproducible and invalidates them when a source, prompt,
+model, or cache schema changes.
 """
 
+import hashlib
 import json
+import os
 from pathlib import Path
+from typing import Any
 
+from redis import Redis
+from redis.exceptions import RedisError
+
+CACHE_SCHEMA_VERSION = "v2"
 CACHE_DIR = Path(__file__).parent / "data" / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def read_cache(key: str):
-    f = CACHE_DIR / f"{key}.json"
-    if f.exists():
-        return json.loads(f.read_text(encoding="utf-8"))
-    return None
+def _redis() -> Redis | None:
+    """Use shared Redis when configured; keep files only for zero-config local work."""
+    url = os.getenv("REDIS_URL", "").strip()
+    return Redis.from_url(url, decode_responses=True) if url else None
 
 
-def write_cache(key: str, data) -> None:
-    f = CACHE_DIR / f"{key}.json"
-    f.write_text(json.dumps(data, indent=2), encoding="utf-8")
+def build_key(*parts: str) -> str:
+    """Create a filesystem-safe key without leaking prompt or source text."""
+    material = "\x1f".join((CACHE_SCHEMA_VERSION, *parts)).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+def read_cache(key: str) -> dict[str, Any] | None:
+    client = _redis()
+    if client:
+        try:
+            payload = client.get(f"hasamex:analysis:{key}")
+            return json.loads(payload) if payload else None
+        except RedisError:
+            # Cache availability must never prevent evidence retrieval.
+            pass
+    path = CACHE_DIR / f"{key}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def write_cache(key: str, data: dict[str, Any]) -> None:
+    """Write atomically so readers never observe partially-written JSON."""
+    client = _redis()
+    if client:
+        try:
+            client.set(f"hasamex:analysis:{key}", json.dumps(data, sort_keys=True))
+            return
+        except RedisError:
+            pass
+    path = CACHE_DIR / f"{key}.json"
+    temporary_path = path.with_suffix(".tmp")
+    temporary_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(temporary_path, path)

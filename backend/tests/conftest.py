@@ -50,7 +50,18 @@ def isolated_cache(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client():
+def client(tmp_path, monkeypatch):
+    # Tests must never inherit a developer's or deployment's DATABASE_URL.
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
+    monkeypatch.setenv("SEED_DEMO_CORPUS", "true")
+    from app.config import get_settings
+    from app.database import get_engine
+
+    get_settings.cache_clear()
+    get_engine.cache_clear()
     from app.main import app
 
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
+    get_settings.cache_clear()
+    get_engine.cache_clear()

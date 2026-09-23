@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Hasamex frontend
 
-## Getting Started
+The evidence workspace is a Next.js and TypeScript client for citation-backed expert research.
 
-First, run the development server:
+## Local development
+
+Copy `.env.example` to `.env.local`, set the Supabase public values and API URL, then run:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Quality checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npx tsc --noEmit
+npm test
+npm run build
+```
 
-## Learn More
+## Deployment configuration
 
-To learn more about Next.js, take a look at the following resources:
+- `NEXT_PUBLIC_API_BASE` is required for production. It must be the HTTPS public backend URL. Without it, the application shows a configuration error rather than accidentally calling a visitor's localhost.
+- Configure Supabase's Site URL and allowed redirect URLs for the exact deployed frontend origin.
+- `NEXT_PUBLIC_FRONTEND_OBSERVABILITY_ENDPOINT` is optional. When configured, it receives only a failure category, error name, route, and timestamp. It never receives transcript content, queries, emails, or auth tokens.
+- `NEXT_PUBLIC_*` values are visible in the browser. Never put secret or service-role keys in them.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The Docker image runs as a non-root user and includes an HTTP health check. Supply the production API endpoint at build time:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+docker build --build-arg NEXT_PUBLIC_API_BASE=https://api.example.com -t hasamex-frontend .
+```
 
-## Deploy on Vercel
+## Security headers
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Production responses include a Content Security Policy plus clickjacking, MIME-sniffing, referrer, permissions, and HSTS protections. CSP connection permissions are built from the configured public API and Supabase origins.

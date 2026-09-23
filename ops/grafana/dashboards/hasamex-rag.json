@@ -1,0 +1,67 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "hasamex-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [{"expr": "sum(rate(hasamex_http_requests_total[5m]))", "legendFormat": "requests/s", "refId": "A"}],
+      "title": "API request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "hasamex-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(hasamex_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95", "refId": "A"}],
+      "title": "API p95 latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "hasamex-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "targets": [{"expr": "sum by (project) (rate(hasamex_retrieval_requests_total[5m]))", "legendFormat": "{{project}}", "refId": "A"}],
+      "title": "Hybrid retrievals / second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "hasamex-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "targets": [{"expr": "sum by (outcome) (rate(hasamex_citations_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A"}],
+      "title": "Citation verification outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "hasamex-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "targets": [{"expr": "sum by (provider, outcome) (rate(hasamex_llm_requests_total[5m]))", "legendFormat": "{{provider}} {{outcome}}", "refId": "A"}],
+      "title": "LLM outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "hasamex-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(hasamex_llm_duration_seconds_bucket[5m])) by (le, provider))", "legendFormat": "{{provider}} p95", "refId": "A"}],
+      "title": "LLM p95 latency",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["rag", "observability"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "Hasamex RAG Operations",
+  "uid": "hasamex-rag-operations",
+  "version": 1
+}

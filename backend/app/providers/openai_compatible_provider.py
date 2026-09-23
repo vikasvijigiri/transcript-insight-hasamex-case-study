@@ -20,6 +20,7 @@ claim loses its citation entirely, but it never fabricates one.
 
 import json
 import time
+from threading import BoundedSemaphore
 
 from openai import (
     APIConnectionError,
@@ -32,6 +33,7 @@ from openai import (
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from ..logging_config import get_logger
+from ..observability import record_llm, tracer
 from .types import GROUNDING_INSTRUCTION, AskResult, DocInput, ProviderCallError, RawCitation
 
 logger = get_logger(__name__)
@@ -63,7 +65,15 @@ _BATCH_JSON_INSTRUCTION = (
 
 
 class OpenAICompatibleProvider:
-    def __init__(self, name: str, base_url: str, api_key: str, model: str, max_retries: int = 3):
+    def __init__(
+        self,
+        name: str,
+        base_url: str,
+        api_key: str,
+        model: str,
+        max_retries: int = 3,
+        max_concurrent_requests: int = 4,
+    ):
         if not api_key:
             raise ProviderCallError(
                 f"No API key configured for provider '{name}'. Set the corresponding "
@@ -72,16 +82,22 @@ class OpenAICompatibleProvider:
         self.name = name
         self._model = model
         self._max_retries = max_retries
+        self._inflight = BoundedSemaphore(max_concurrent_requests)
         self._client = OpenAI(base_url=base_url, api_key=api_key)
 
     def _create(self, **kwargs):
+        if not self._inflight.acquire(blocking=False):
+            raise ProviderCallError("LLM capacity is busy; please retry shortly")
         retryer = Retrying(
             retry=retry_if_exception_type(_RETRYABLE),
             wait=wait_random_exponential(multiplier=1, max=20),
             stop=stop_after_attempt(self._max_retries),
             reraise=True,
         )
-        return retryer(lambda: self._client.chat.completions.create(**kwargs))
+        try:
+            return retryer(lambda: self._client.chat.completions.create(**kwargs))
+        finally:
+            self._inflight.release()
 
     def _build_prompt(self, docs: list[DocInput], prompt: str) -> str:
         doc_blocks = []
@@ -121,20 +137,32 @@ class OpenAICompatibleProvider:
             # answer. Not sent to other OpenAI-compatible endpoints (e.g.
             # HF), which may not support this param.
             kwargs["extra_body"] = {"reasoning_effort": "low"}
-        try:
-            response = self._create(**kwargs)
-        except APIStatusError as e:
-            logger.error("%s API call failed with status %s: %s", self.name, e.status_code, e)
-            raise ProviderCallError(f"{self.name} API error ({e.status_code}): {e}") from e
-        except _RETRYABLE as e:
-            logger.error("%s API call failed after retries: %s", self.name, e)
-            raise ProviderCallError(f"{self.name} API is currently unavailable: {e}") from e
+        with tracer(__name__).start_as_current_span("llm.completion") as span:
+            span.set_attribute("gen_ai.provider.name", self.name)
+            span.set_attribute("gen_ai.request.model", self._model)
+            try:
+                response = self._create(**kwargs)
+            except APIStatusError as e:
+                record_llm(self.name, outcome="error")
+                logger.error("%s API call failed with status %s: %s", self.name, e.status_code, e)
+                raise ProviderCallError(f"{self.name} API error ({e.status_code}): {e}") from e
+            except _RETRYABLE as e:
+                record_llm(self.name, outcome="error")
+                logger.error("%s API call failed after retries: %s", self.name, e)
+                raise ProviderCallError(f"{self.name} API is currently unavailable: {e}") from e
 
         latency_ms = int((time.monotonic() - started) * 1000)
         raw_text = response.choices[0].message.content or "{}"
         usage = getattr(response, "usage", None)
         input_tokens = getattr(usage, "prompt_tokens", 0) or 0
         output_tokens = getattr(usage, "completion_tokens", 0) or 0
+        record_llm(
+            self.name,
+            outcome="success",
+            duration_seconds=latency_ms / 1000,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
         return raw_text, latency_ms, input_tokens, output_tokens
 
     def ask(self, docs: list[DocInput], prompt: str, max_tokens: int = 1024) -> AskResult:
@@ -243,9 +271,7 @@ class OpenAICompatibleProvider:
         try:
             parsed = json.loads(raw_text)
         except (json.JSONDecodeError, TypeError):
-            logger.warning(
-                "%s returned non-JSON batch output; returning empty answers", self.name
-            )
+            logger.warning("%s returned non-JSON batch output; returning empty answers", self.name)
             return [("", []) for _ in range(n)]
 
         by_index: dict[int, tuple[str, list[RawCitation]]] = {}

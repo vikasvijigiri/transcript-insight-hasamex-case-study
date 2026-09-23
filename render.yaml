@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: hasamex-api
+    plan: free
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: SUPABASE_JWT_AUDIENCE
+        value: authenticated
+      - key: AUTO_CREATE_SCHEMA
+        value: "false"
+      - key: SEED_DEMO_CORPUS
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false

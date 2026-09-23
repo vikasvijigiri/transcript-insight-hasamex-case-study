@@ -22,6 +22,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // Browser extensions can annotate the document element before React hydrates.
+      // This is intentionally limited to the root element; application markup is
+      // still checked normally for genuine hydration mismatches.
+      suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
