@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -17,7 +18,9 @@ export const metadata: Metadata = {
   description: "AI-assisted analysis of expert-call transcripts with citation-backed answers.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+type RootLayoutProps = Readonly<{ children: ReactNode }>;
+
+export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html
       lang="en"
