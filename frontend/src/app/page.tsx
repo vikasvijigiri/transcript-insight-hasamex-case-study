@@ -114,19 +114,17 @@ function Workspace() {
           </div>
         </header>
 
-        <div className="px-6 py-8 sm:px-9 lg:px-10 lg:py-10">
-          <section className="flex justify-end border-b border-slate-200/80 pb-8">
-            <div className="hidden">
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#d9e8e5] bg-[#eff7f5] px-3 py-1 text-xs font-semibold tracking-wide text-[#2c6b65]">
+        <div className="px-6 py-6 sm:px-9 lg:px-10 lg:py-7">
+          <section className="grid gap-5 border-b border-slate-200/80 pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div>
+              <p className="text-[11px] font-bold tracking-[0.14em] text-[#43827a]">
                 EUROPEAN MEDTECH RESEARCH · 2026
-              </div>
-              <h1 className="max-w-3xl text-3xl font-semibold tracking-[-0.045em] text-slate-900 sm:text-4xl lg:text-[2.75rem] lg:leading-[1.06]">
-                Robotic surgery, <span className="text-[#43827a]">seen through</span> the people who
-                buy and use it.
+              </p>
+              <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+                Robotic surgery market evidence
               </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-                A decision-ready reading of three expert calls across France, Germany, and the UK.
-                Every finding stays connected to the exact words and moment that support it.
+              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">
+                Compare what buyers and users say across France, Germany, and the UK—every finding linked to its original call record.
               </p>
             </div>
             <div className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -154,33 +152,35 @@ function Workspace() {
 
           <nav
             aria-label="Research views"
-            className="mt-7 grid gap-2 rounded-2xl bg-slate-100/80 p-2 sm:grid-cols-2 lg:grid-cols-4"
+            className="mt-5 flex gap-1 overflow-x-auto border-b border-slate-200/80 pb-px"
           >
             {tabs.map((item, index) => (
               <button
                 key={item.id}
                 onClick={() => setTab(item.id)}
-                className={`group rounded-xl px-4 py-3 text-left transition ${tab === item.id ? "bg-white shadow-sm ring-1 ring-slate-200/80" : "hover:bg-white/70"}`}
+                className={`group relative shrink-0 px-3 py-3 text-left transition sm:px-4 ${tab === item.id ? "text-slate-900" : "text-slate-500 hover:text-slate-800"}`}
               >
                 <div className="flex items-center gap-2">
                   <span
-                    className={`grid h-6 w-6 place-items-center rounded-md text-xs font-semibold ${tab === item.id ? "bg-[#19243a] text-white" : "bg-slate-200 text-slate-600"}`}
+                    className={`grid h-5 w-5 place-items-center rounded-md text-[10px] font-bold ${tab === item.id ? "bg-[#19243a] text-white" : "bg-slate-200 text-slate-500"}`}
                   >
                     0{index + 1}
                   </span>
                   <span
-                    className={`text-sm font-semibold ${tab === item.id ? "text-slate-900" : "text-slate-600"}`}
+                    className="text-sm font-semibold"
                   >
                     {item.label}
                   </span>
                 </div>
-                <p className="mt-1.5 pl-8 text-xs leading-4 text-slate-500">{item.description}</p>
+                {tab === item.id && (
+                  <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#43827a] sm:inset-x-4" />
+                )}
               </button>
             ))}
           </nav>
 
-          <main className="mt-8">
-            <div className="mb-5 flex items-end justify-between gap-4">
+          <main className="mt-6">
+            <div className="mb-5 flex items-end justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <p className="text-[11px] font-bold tracking-[0.14em] text-[#43827a]">
                   {activeTab.eyebrow.toUpperCase()}
@@ -189,8 +189,8 @@ function Workspace() {
                   {activeTab.label}
                 </h2>
               </div>
-              <p className="hidden text-right text-xs text-slate-500 sm:block">
-                Grounded answers · exact transcript citations
+              <p className="hidden max-w-xs text-right text-xs leading-5 text-slate-500 sm:block">
+                {activeTab.description} Grounded answers include exact transcript citations.
               </p>
             </div>
             <ErrorBoundary key={tab}>

@@ -25,17 +25,19 @@ function EvidenceRail({ citation }: { citation: Citation | null }) {
   if (!citation)
     return (
       <aside className="hidden xl:block">
-        <div className="sticky top-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-5">
+        <div className="sticky top-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-[10px] font-bold tracking-[0.14em] text-slate-400">
             EVIDENCE INSPECTOR
           </p>
-          <h3 className="mt-2 text-sm font-semibold text-slate-800">
-            Verify any finding in context.
-          </h3>
+          <h3 className="mt-2 text-sm font-semibold text-slate-800">Verify a finding in context</h3>
           <p className="mt-2 text-xs leading-5 text-slate-500">
-            Select “Inspect evidence” beneath a claim to reveal its exact source passage
-            here—without leaving your place in the analysis.
+            Select a citation under any answer. The original passage will open here without moving you away from the analysis.
           </p>
+          <ol className="mt-5 space-y-3 border-t border-slate-100 pt-4 text-xs text-slate-600">
+            <li className="flex gap-2"><span className="font-semibold text-[#39766f]">01</span><span>Read the synthesized answer.</span></li>
+            <li className="flex gap-2"><span className="font-semibold text-[#39766f]">02</span><span>Open its timestamped citation.</span></li>
+            <li className="flex gap-2"><span className="font-semibold text-[#39766f]">03</span><span>Review the source passage.</span></li>
+          </ol>
         </div>
       </aside>
     );
@@ -48,7 +50,7 @@ function EvidenceRail({ citation }: { citation: Citation | null }) {
 
   return (
     <aside className="hidden xl:block">
-      <div className="sticky top-6 overflow-hidden rounded-2xl border border-[#cfe5de] bg-white shadow-sm">
+      <div className="sticky top-5 overflow-hidden rounded-2xl border border-[#cfe5de] bg-white shadow-sm">
         <div className="border-b border-[#dcece7] bg-[#eff7f5] px-5 py-4">
           <p className="text-[10px] font-bold tracking-[0.14em] text-[#39766f]">
             EVIDENCE INSPECTOR
@@ -176,11 +178,12 @@ export default function ExpertQAPanel({ experts }: { experts: ExpertMeta[] }) {
   const nextMarket = sourceProfiles.find((expert) => expert.id === activeId)?.market;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_290px]">
-      <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:self-start">
-        <p className="px-2 pb-2 pt-1 text-[11px] font-bold tracking-[0.14em] text-slate-500">
-          SOURCE PROFILES
-        </p>
+    <div className="grid gap-6 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[248px_minmax(0,1fr)_300px]">
+      <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:sticky lg:top-5 lg:self-start">
+        <div className="flex items-baseline justify-between px-2 pb-2 pt-1">
+          <p className="text-[11px] font-bold tracking-[0.14em] text-slate-500">SOURCE PROFILES</p>
+          <span className="text-[11px] font-medium text-slate-400">{sourceProfiles.length}</span>
+        </div>
         <form onSubmit={searchSources} className="mb-2 px-1">
           <label className="sr-only" htmlFor="source-search">Search source profiles</label>
           <div className="flex gap-1">
@@ -196,7 +199,7 @@ export default function ExpertQAPanel({ experts }: { experts: ExpertMeta[] }) {
             </button>
           </div>
         </form>
-        <div className="flex gap-2 overflow-x-auto lg:flex-col">
+        <div className="flex gap-2 overflow-x-auto lg:max-h-[calc(100vh-19rem)] lg:flex-col lg:overflow-y-auto lg:pr-1">
           {sourceProfiles.map((expert, index) => (
             <button
               key={expert.id}
@@ -254,12 +257,14 @@ export default function ExpertQAPanel({ experts }: { experts: ExpertMeta[] }) {
             key={data.expert_id}
             className={`space-y-4 transition-opacity duration-200 motion-reduce:transition-none ${loading ? "opacity-55" : "animate-[fade-in_220ms_ease-out] opacity-100"}`}
           >
-            <div className="rounded-2xl border border-[#d9e8e5] bg-[#eff7f5] px-5 py-4">
-              <p className="text-sm font-semibold text-slate-900">{data.expert_name}</p>
-              <p className="mt-1 text-xs text-[#39766f]">
-                {data.role} · {data.market} market perspective · 6 guide questions
-              </p>
-              <p className="mt-1 text-xs font-semibold text-[#39766f]">
+            <div className="flex flex-col gap-3 rounded-2xl border border-[#d9e8e5] bg-[#eff7f5] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{data.expert_name}</p>
+                <p className="mt-1 text-xs text-[#39766f]">
+                  {data.role} · {data.market} market perspective · 6 guide questions
+                </p>
+              </div>
+              <p className="shrink-0 text-xs font-semibold text-[#39766f]">
                 {data.context_mode === "full_transcript_fallback"
                   ? "Full transcript fallback · selected by RAG policy"
                   : "Retrieved RAG evidence"}
