@@ -11,7 +11,15 @@ from app.config import get_settings
 from app.models import Base
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# ConfigParser treats '%' as interpolation syntax. Percent-encoded database
+# passwords (for example '@' encoded as '%40') are valid URLs, so escape them
+# only for Alembic's INI hand-off; SQLAlchemy receives the original value.
+database_url = get_settings().database_url
+# Keep migrations on psycopg v3, matching app.database. SQLAlchemy otherwise
+# selects psycopg2 for a generic postgresql:// URL, which is not installed.
+if database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
