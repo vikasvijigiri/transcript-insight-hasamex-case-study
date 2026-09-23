@@ -99,17 +99,25 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_URL must point to managed PostgreSQL when AUTH_REQUIRED=true"
             )
-        if self.auth_required and any(
-            origin == "*" or not origin.startswith("https://") for origin in self.cors_origin_list
-        ):
+        if self.auth_required and not self.cors_origin_list:
             raise ValueError(
-                "CORS_ORIGINS must contain explicit HTTPS origins when AUTH_REQUIRED=true"
+                "CORS_ORIGINS must contain at least one explicit HTTPS origin when AUTH_REQUIRED=true"
             )
         return self
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        origins = []
+        for raw_origin in self.cors_origins.split(","):
+            origin = raw_origin.strip().strip("\"'").removeprefix("CORS_ORIGINS=").rstrip("/")
+            if not origin:
+                continue
+            # Production only permits explicit HTTPS browser origins. This also
+            # ignores localhost values accidentally copied from local setup.
+            if self.auth_required and not origin.startswith("https://"):
+                continue
+            origins.append(origin)
+        return origins
 
 
 @lru_cache
