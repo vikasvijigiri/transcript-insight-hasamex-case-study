@@ -73,6 +73,7 @@ class OpenAICompatibleProvider:
         model: str,
         max_retries: int = 3,
         max_concurrent_requests: int = 4,
+        timeout_seconds: float = 45,
     ):
         if not api_key:
             raise ProviderCallError(
@@ -83,7 +84,10 @@ class OpenAICompatibleProvider:
         self._model = model
         self._max_retries = max_retries
         self._inflight = BoundedSemaphore(max_concurrent_requests)
-        self._client = OpenAI(base_url=base_url, api_key=api_key)
+        # SDK retries are disabled: Tenacity below owns the bounded retry policy.
+        self._client = OpenAI(
+            base_url=base_url, api_key=api_key, timeout=timeout_seconds, max_retries=0
+        )
 
     def _create(self, **kwargs):
         if not self._inflight.acquire(blocking=False):

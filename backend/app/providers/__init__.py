@@ -29,6 +29,7 @@ def build_provider(settings: Settings) -> Provider:
             model=settings.gemini_model,
             max_retries=settings.max_retries,
             max_concurrent_requests=settings.llm_max_concurrent_requests,
+            timeout_seconds=settings.llm_timeout_seconds,
         )
     if settings.llm_provider == "groq":
         return OpenAICompatibleProvider(
@@ -38,6 +39,7 @@ def build_provider(settings: Settings) -> Provider:
             model=settings.groq_model,
             max_retries=settings.max_retries,
             max_concurrent_requests=settings.llm_max_concurrent_requests,
+            timeout_seconds=settings.llm_timeout_seconds,
         )
     if settings.llm_provider == "huggingface":
         return OpenAICompatibleProvider(
@@ -47,6 +49,7 @@ def build_provider(settings: Settings) -> Provider:
             model=settings.hf_model,
             max_retries=settings.max_retries,
             max_concurrent_requests=settings.llm_max_concurrent_requests,
+            timeout_seconds=settings.llm_timeout_seconds,
         )
     raise ValueError(
         f"Unknown LLM_PROVIDER '{settings.llm_provider}'. Expected one of: "

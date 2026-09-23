@@ -178,7 +178,9 @@ export default function ExpertQAPanel({ experts }: { experts: ExpertMeta[] }) {
   const activeExpert = sourceProfiles.find((expert) => expert.id === activeId);
   const nextMarket = activeExpert?.market;
   const displayName =
-    data?.expert_name === data?.expert_id ? activeExpert?.name ?? data.expert_name : data?.expert_name;
+    data?.expert_name === data?.expert_id
+      ? activeExpert?.name ?? data?.expert_name
+      : data?.expert_name;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[248px_minmax(0,1fr)_300px]">

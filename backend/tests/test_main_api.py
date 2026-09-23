@@ -11,6 +11,13 @@ def test_health(client):
     assert res.json()["status"] == "ok"
     assert res.headers["x-content-type-options"] == "nosniff"
     assert res.headers["x-frame-options"] == "DENY"
+    assert res.headers["x-request-id"]
+
+
+def test_readiness_checks_database_connectivity(client):
+    response = client.get("/api/readiness")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
 
 
 def test_local_mode_exposes_only_the_development_principal(client):

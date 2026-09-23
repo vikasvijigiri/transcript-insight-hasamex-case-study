@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     llm_max_concurrent_requests: int = Field(
         default=4, ge=1, le=64, alias="LLM_MAX_CONCURRENT_REQUESTS"
     )
+    llm_timeout_seconds: float = Field(default=45, ge=1, le=300, alias="LLM_TIMEOUT_SECONDS")
     max_request_bytes: int = Field(default=2_000_000, ge=1_024, alias="MAX_REQUEST_BYTES")
 
     # Persistence is deliberately database-agnostic: SQLite keeps local
@@ -84,10 +85,26 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
+        if self.llm_provider not in {"gemini", "groq", "huggingface"}:
+            raise ValueError("LLM_PROVIDER must be gemini, groq, or huggingface")
         if self.auth_required and not self.supabase_url:
             raise ValueError("SUPABASE_URL is required when AUTH_REQUIRED=true")
         if self.auth_required and not self.metrics_token:
             raise ValueError("METRICS_TOKEN is required when AUTH_REQUIRED=true")
+        if self.auth_required and self.auto_create_schema:
+            raise ValueError("AUTO_CREATE_SCHEMA must be false when AUTH_REQUIRED=true")
+        if self.auth_required and self.seed_demo_corpus:
+            raise ValueError("SEED_DEMO_CORPUS must be false when AUTH_REQUIRED=true")
+        if self.auth_required and self.database_url.startswith("sqlite"):
+            raise ValueError(
+                "DATABASE_URL must point to managed PostgreSQL when AUTH_REQUIRED=true"
+            )
+        if self.auth_required and any(
+            origin == "*" or not origin.startswith("https://") for origin in self.cors_origin_list
+        ):
+            raise ValueError(
+                "CORS_ORIGINS must contain explicit HTTPS origins when AUTH_REQUIRED=true"
+            )
         return self
 
     @property

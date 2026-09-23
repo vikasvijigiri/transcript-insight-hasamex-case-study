@@ -5,7 +5,7 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    healthCheckPath: /api/health
+    healthCheckPath: /api/readiness
     autoDeploy: true
     envVars:
       - key: AUTH_REQUIRED

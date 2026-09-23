@@ -4,11 +4,12 @@ from pathlib import Path
 from secrets import compare_digest
 from time import perf_counter
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from . import cache
@@ -102,6 +103,15 @@ app.middleware("http")(observe_http)
 
 
 @app.middleware("http")
+async def request_identity(request: Request, call_next):
+    """Attach a safe correlation ID to logs, errors, and responses."""
+    request.state.request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    return response
+
+
+@app.middleware("http")
 async def request_size_limit(request: Request, call_next):
     """Reject oversized requests before parsing JSON or allocating transcript text."""
     content_length = request.headers.get("content-length")
@@ -129,8 +139,14 @@ async def security_headers(request: Request, call_next):
 
 @app.exception_handler(ProviderCallError)
 def provider_error_handler(request: Request, exc: ProviderCallError) -> JSONResponse:
-    logger.error("Provider call failed on %s: %s", request.url.path, exc)
-    return JSONResponse(status_code=502, content={"detail": str(exc)})
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.error(
+        "provider_call_failed request_id=%s path=%s error=%s", request_id, request.url.path, exc
+    )
+    return JSONResponse(
+        status_code=502,
+        content={"detail": "Research provider temporarily unavailable", "request_id": request_id},
+    )
 
 
 QUESTIONS = load_questions(INTERVIEW_GUIDE_FILE)
@@ -275,6 +291,17 @@ def health():
         "llm_provider": settings.llm_provider,
         "authentication_required": settings.auth_required,
     }
+
+
+@app.get("/api/readiness")
+def readiness(session: DatabaseSession):
+    """Deployment readiness probe: verifies that the application can reach its database."""
+    try:
+        session.execute(text("SELECT 1"))
+    except Exception as exc:
+        logger.exception("readiness_check_failed")
+        raise HTTPException(status_code=503, detail="Service dependencies are not ready") from exc
+    return {"status": "ready"}
 
 
 @app.get("/api/auth/me")
