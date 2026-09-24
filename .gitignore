@@ -7,6 +7,13 @@ backend/evals/results/
 backend/.mypy_cache/
 backend/.ruff_cache/
 backend/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
 backend/.env
 *.pyc
 
@@ -39,3 +46,8 @@ Thumbs.db
 CLAUDE.md
 AGENTS.md
 docs/superpowers/
+
+# Private case materials and internal project documentation.
+Files/
+docs/
+references/

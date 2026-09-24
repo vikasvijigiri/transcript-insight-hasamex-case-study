@@ -29,6 +29,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+npm-install*.log
+
+# Interrupted dependency installs
+/node_modules.corrupt-*
 
 # env files (can opt-in for committing if needed)
 .env*
