@@ -29,7 +29,14 @@ def get_engine(database_url: str | None = None) -> Engine:
         database_path = make_url(url).database
         if database_path and database_path != ":memory:":
             Path(database_path).parent.mkdir(parents=True, exist_ok=True)
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    connect_args: dict[str, object] = {}
+    if url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
+    elif url.startswith("postgresql+psycopg://"):
+        # Transaction-mode poolers (e.g. Supabase/PgBouncer) hand each transaction
+        # to a different server connection, so psycopg's automatic server-side
+        # prepared statements collide ("prepared statement _pg3_0 already exists").
+        connect_args["prepare_threshold"] = None
     return create_engine(url, future=True, pool_pre_ping=True, connect_args=connect_args)
 
 
