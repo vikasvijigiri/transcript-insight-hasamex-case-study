@@ -1,109 +1,183 @@
-# Transcript Insight — Hasamex AI Engineer Case Study
+# Transcript Insight
 
-An app that analyses 3 expert-call transcripts (France / Germany / UK, robotic surgery market) and:
+**Evidence-first analysis of expert-call transcripts. Every answer is traceable to a verbatim quote and a timestamp.**
 
-- answers the 6 interview-guide questions **per expert**, grounded in the transcript,
-- surfaces the **exact quote** and **timestamp** behind every answer,
-- synthesises **common themes and disagreements** across all 3 experts, and
-- lets you **ask free-form questions** across all transcripts.
+Built for the Hasamex AI Engineer case study: three expert calls (France, Germany, UK) on the European robotic-surgery market, analysed against a six-question interview guide.
+
+**Live demo:** https://transcript-insight-hasamex-case-stu.vercel.app
+Sign in with Google. The API runs on Render's free tier, so the first request after a period of inactivity can take 30–60 seconds while the instance wakes up.
+
+---
+
+## What it does
+
+| Case requirement | How the app delivers it |
+|---|---|
+| Upload / read the 3 transcripts | Transcripts are parsed into timestamped speaker turns and ingested into a per-user project corpus |
+| Answer the interview guide per expert | **Expert evidence** tab: all 6 questions answered for each expert, side by side with the source transcript |
+| Extract exact quotes | Every quote is a verified verbatim substring of the transcript. Paraphrased or invented quotes are discarded, never shown |
+| Show source timestamps | Each citation links to the timestamp of the turn it came from, and the quote is highlighted in the full transcript |
+| Common themes and disagreements | **Market synthesis** tab: cross-expert themes and explicit disagreements, each backed by citations from the experts involved |
+| Ask questions across transcripts | **Ask the corpus** tab: free-form questions answered only from retrieved evidence, with citations |
+| Do not invent information | Unsupported questions return *"Not addressed in the indexed source material."*, and this is regression-tested with trap questions |
+
+A fourth tab, **RAG operations**, shows live request, retrieval and citation-validation metrics.
+
+---
 
 ## Architecture
 
 ```
-frontend/ (Next.js + Tailwind)  ──HTTP──►  backend/ (FastAPI)  ──►  LLM provider (pluggable)
-     3 tabs: Expert Q&A,                     transcript parsing,        gemini (default),
-     Themes & Disagreements,                 timestamp mapping,         groq / huggingface:
-     Ask a Question                          quote verification,       OpenAI-compatible,
-                                              retries, disk cache        open-weight or Gemini
+┌───────────────────────┐      HTTPS + JWT      ┌──────────────────────────────────────────┐
+│  Next.js 16 frontend  │ ────────────────────► │  FastAPI backend                         │
+│  (Vercel)             │                       │  (Render, Docker)                        │
+│                       │                       │                                          │
+│  Expert evidence      │                       │  ingestion ─► turn-aware chunking        │
+│  Market synthesis     │                       │  retrieval ─► BM25 + vector, RRF fusion, │
+│  Ask the corpus       │                       │               rerank, MMR packing        │
+│  RAG operations       │                       │  generation ─► pluggable LLM provider    │
+└──────────┬────────────┘                       │  grounding ─► verbatim quote check,      │
+           │ Google OAuth                       │               offset ─► timestamp        │
+           ▼                                    └──────┬─────────────────────┬─────────────┘
+   ┌───────────────┐                                   │                     │
+   │ Supabase Auth │ ◄──── JWKS verification ──────────┘                     ▼
+   └───────────────┘                               PostgreSQL (SQLAlchemy + Alembic)
+                                                   Prometheus metrics · OpenTelemetry traces
 ```
 
-**Provider is pluggable, not hard-coded** (`app/providers/`, selected via `LLM_PROVIDER`): `gemini` (default), `groq`, and `huggingface` — all OpenAI-compatible endpoints. `gemini` is the default because its free tier (250K tokens/minute) comfortably covers this app's multi-call `/qa` and `/themes` endpoints, where Groq's free tier (8K tokens/minute) gets rate-limited under normal use; `groq`/`huggingface` remain available as manual fallbacks via `LLM_PROVIDER`.
+The request path for a question:
 
-None of these endpoints have a native citation feature, so grounding is enforced entirely by us: the model returns quotes as structured JSON, and we verify each one with a literal substring search against the source transcript before ever showing it. A quote that isn't found verbatim is dropped, never shown — it can never fabricate a citation, though a claim can lose its citation entirely if the model doesn't produce a matching quote.
+1. **Retrieve.** The question is matched against the user's corpus with hybrid search: BM25 plus a vector channel, fused with reciprocal rank fusion, reranked, and packed with MMR so evidence isn't duplicated. When the whole corpus fits within a configurable size (`RAG_FULL_CORPUS_MAX_CHARACTERS`), complete transcripts are sent instead, because with three short calls full context beats chunking.
+2. **Generate.** The LLM gets only that evidence, with instructions to answer strictly from it and to return structured JSON containing verbatim quotes.
+3. **Ground.** Every quote is located by literal substring search in the exact source text. The resulting character offset, never one reported by the model, is mapped to the nearest timestamp at or before it. Quotes that don't match are dropped.
+4. **Verify again.** A final guardrail re-checks each citation against the source before the response leaves the API.
 
-Every provider implementation returns the same shape (`AskResult` / `RawCitation`), so `main.py`'s citation→timestamp resolution and quote-verification guardrail run identically regardless of which one answered.
+---
 
-**How citations/timestamps work:** the model returns a `document_index` + verbatim `quote`. We do a literal substring search (`document.text.find(quote)`) against that exact document — the char offset used for the timestamp lookup is the offset returned by that search, never one reported by the model. The backend never reformats the transcript before sending it, so the offset stays valid, and `transcript_parser.py` walks the transcript's parsed timestamp markers to find the nearest one at-or-before that offset.
+## Key design decisions
 
-**How hallucinations are reduced:**
-1. Every answer is generated only from the transcript(s) passed in that request — no outside knowledge, enforced via a system prompt on every provider.
-2. Every quote shown in the UI is a verbatim-verified substring — never a model's free-text description of a quote.
-3. A guardrail in `main.py` (`verify_quote`) re-checks every citation against the source transcript before it's ever returned to the client; anything that fails is dropped.
-4. If a question isn't addressed in a transcript, every provider is instructed to say so explicitly rather than guess.
-5. An **eval harness** (`backend/evals/`) includes "trap" questions the transcripts deliberately don't answer, specifically to regression-test that the pipeline refuses instead of fabricating — see below.
+### Citations and timestamps
+Transcripts are parsed into `(timestamp, char_offset)` markers **without modifying the raw text**, so a character offset always means the same thing in the parser, the prompt and the verifier. Timestamps are derived deterministically from where a quote actually appears. The model's claim about where it came from is never used.
 
-**Why no vector DB at this scale:** with 3 short transcripts, the full text fits comfortably in context, and passing the complete transcript to the grounding mechanism is more accurate than chunk-based retrieval (no risk of the right paragraph being split out of a chunk).
+### Reducing hallucinations
+- **Closed-book generation:** the model sees only retrieved evidence and is told to abstain when the evidence doesn't answer the question.
+- **Verbatim-only quotes:** a citation that isn't an exact substring of the source is discarded. A claim can lose its citation, but a citation can never be fabricated.
+- **Two independent checks:** grounding at generation time, then a separate verification pass before every response.
+- **Explicit abstention:** questions the transcripts don't cover get a fixed "not addressed" answer instead of a guess.
+- **Evals with trap questions:** the golden set mixes real interview-guide questions with questions the transcripts deliberately don't answer, and tracks the fabricated-citation count per model.
 
-## Scaling from 3 → 30+ transcripts
+### Model choice
+Providers sit behind one `Provider` protocol and an OpenAI-compatible client, so switching model is a configuration change (`LLM_PROVIDER`), not a code change:
 
-- **Ingestion:** move from hardcoded expert metadata (`experts.py`) to a manifest/DB row created at upload time.
-- **Retrieval:** chunk transcripts by speaker turn, generate contextual embeddings per chunk (prepending a short LLM-written context blurb before embedding), store in a vector DB (Chroma/pgvector) with hybrid (BM25 + embedding) search and a rerank step.
-- **Per-question answers:** retrieve top-k relevant chunks per question instead of the full transcript, then run the same grounding step against just that subset.
-- **Cross-transcript synthesis:** replace the single "all docs in one call" pass with a map-reduce: extract per-expert themes/quotes independently (parallelisable), then a reduce pass clusters and cites across all of them.
-- **Cost/latency/rate limits:** this is exactly where the provider abstraction pays off — route the high-volume per-chunk extraction pass to whichever provider currently has the most free-tier headroom, swapped via a single config change.
+| Provider | Default model | Why |
+|---|---|---|
+| `groq` *(live deployment)* | `openai/gpt-oss-120b` | Strong instruction-following and reliable JSON output from an open-weight model, with very low latency |
+| `gemini` *(local default)* | `gemini-3.6-flash` | Generous free-tier throughput for the multi-call Q&A and synthesis endpoints |
+| `huggingface` | `openai/gpt-oss-120b` | Fallback through the Inference Providers router |
 
-## Production-grade layers in this repo
+None of these offer native citations, so grounding is enforced by the application. That's also why answer quality doesn't depend on any one vendor's features.
 
-- **Resilience:** `tenacity`-based retry with exponential backoff + jitter on transient provider errors (rate limits, connection errors, 5xx); 4xx errors are never retried.
-- **Config:** typed, validated settings (`app/config.py`, `pydantic-settings`) instead of scattered `os.environ.get()` calls — fails fast at startup on bad config.
-- **Error handling:** a `ProviderCallError` → HTTP 502 exception handler in `main.py`, so a provider outage returns a clean JSON error instead of a raw 500 stack trace.
-- **Observability:** structured JSON logging (`app/logging_config.py`) with per-call latency and token usage for every LLM call, tagged by provider.
-- **Testing:** `pytest` suite (`backend/tests/`) — transcript/timestamp parsing, the verbatim-quote guardrail, and full API tests against a mocked provider (no network calls, no API cost). Run with `pytest -q`.
-- **Eval harness (AI/ML-specific):** `backend/evals/` — a golden regression set mixing real interview-guide questions (must be grounded) with "trap" questions the transcripts don't cover (must NOT produce a citation). Tracks pass rate, fabricated-citation count, latency, and token usage per provider/model, and writes a timestamped JSON report so runs are comparable over time. Run with `python -m evals.run_eval --compare gemini groq`.
-- **Lint/format/types:** `ruff` (lint + format) and `mypy`, configured in `pyproject.toml`; `eslint` + `tsc --noEmit` on the frontend. All clean as of this commit.
-- **Frontend tests:** `vitest` + React Testing Library for `CitationChips` and `ErrorBoundary` (`npm test`); a render-time `ErrorBoundary` isolates a broken panel instead of blanking the page.
-- **CI:** `.github/workflows/ci.yml` runs backend lint/type-check/tests and frontend lint/type-check/build on every push and PR.
-- **Pre-commit:** `.pre-commit-config.yaml` runs ruff + the backend test suite before each commit (`pre-commit install`).
-- **Containers:** `backend/Dockerfile` and `frontend/Dockerfile` (multi-stage, non-root user, healthchecks), plus a root `docker-compose.yml` to run both with `docker compose up`.
+### Scaling from 3 to 30+ transcripts
+Most of the production path is already in place: persistent ingestion, hybrid retrieval, per-tenant isolation and metadata filters (such as market or expert). To go further:
+
+- **Retrieval:** swap the in-process BM25 and vector adapters for managed ones, e.g. PostgreSQL full-text search plus pgvector with contextual embeddings and a cross-encoder reranker. The retrieval interfaces (`LexicalRetriever`, `VectorRetriever`, `Reranker`) are already defined for this.
+- **Synthesis:** move from a single cross-expert call to **map-reduce**: extract themes per transcript in parallel, then cluster and cite them in a reduce pass. Cost grows linearly and each step stays within context limits.
+- **Throughput and cost:** answers are cached under content-hashed keys (Redis, or disk locally), LLM concurrency is bounded, and retries use backoff. The high-volume extraction pass can go to a cheaper model while synthesis stays on a stronger one.
+- **Ingestion at volume:** an upload queue with background workers, and immutable source versions so citations and evals stay reproducible.
+
+---
 
 ## Run locally
 
-**Backend**
+**Prerequisites:** Python 3.12+, Node.js 20+, and an API key for one provider (Gemini or Groq; both have free tiers).
+
+Local mode needs no authentication or external database. It uses SQLite and seeds the sample corpus automatically.
+
 ```bash
+# 1. Backend
 cd backend
 python -m venv .venv
-.venv/Scripts/activate        # Windows; use `source .venv/bin/activate` on macOS/Linux
-pip install -r requirements-dev.txt   # or requirements.txt for runtime-only
-cp .env.example .env          # fill in the key for whichever LLM_PROVIDER you use
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt
+cp .env.example .env                 # set GEMINI_API_KEY (or LLM_PROVIDER=groq + GROQ_API_KEY)
 uvicorn app.main:app --reload --port 8000
 ```
 
-**Frontend** (separate terminal)
 ```bash
+# 2. Frontend (new terminal)
 cd frontend
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000. The first load of each tab calls the LLM live and caches the result to `backend/app/data/cache/`; add `?refresh=true` to a backend URL (e.g. `/api/themes?refresh=true`) to force recomputation.
+Open **http://localhost:3000**. With no Supabase variables set, the frontend skips sign-in and talks to `http://localhost:8000`.
 
-**With Docker instead:**
+**Or with Docker:** `docker compose up --build` from the repo root (create `backend/.env` first).
+
+---
+
+## Quality
+
 ```bash
-docker compose up --build
-```
-(requires `backend/.env` to already exist, per above)
+# Backend: lint, types, tests (provider is mocked, so no network calls or API cost)
+cd backend && ruff check app/ tests/ evals/ && mypy app/ && pytest -q
 
-**Tests / lint / eval**
-```bash
-cd backend && pytest -q && ruff check app/ tests/ evals/ && mypy app/
-cd frontend && npm test && npm run lint && npx tsc --noEmit
-cd backend && python -m evals.run_eval --compare gemini groq   # costs real API calls
+# Frontend: lint, types, unit tests, production build
+cd frontend && npm run lint && npx tsc --noEmit && npm test && npm run build
+
+# Model evaluation: real API calls, run manually
+cd backend && python -m evals.run_eval --compare gemini groq
 ```
 
-## Repo layout
+- **Tests:** a pytest suite covering transcript parsing, chunking, retrieval, grounding, ingestion, caching and the full API against a mocked provider, plus Vitest and Testing Library tests for the key UI components.
+- **Evals:** a golden set of grounded and trap questions, reporting pass rate, fabricated citations, latency and token usage per provider. Deterministic retrieval and citation contracts also run inside the normal test suite.
+- **CI:** GitHub Actions runs lint, type checks, tests and the frontend build on every push and pull request, and a separate security workflow scans the code and dependencies.
+
+---
+
+## Production
+
+| Concern | Implementation |
+|---|---|
+| Hosting | Frontend on Vercel, API on Render (Docker, health-checked on `/api/readiness`) |
+| Auth | Supabase Auth with Google OAuth. The API verifies JWTs against Supabase JWKS |
+| Tenancy | Every corpus, retrieval and answer is scoped to the caller's tenant |
+| Data | PostgreSQL through SQLAlchemy, with schema managed by Alembic migrations |
+| Security | Strict CORS allow-list, request-size limits, bounded LLM concurrency, CSP and security headers, non-root containers, and startup checks that refuse unsafe production config |
+| Resilience | Bounded LLM concurrency, timeouts, and retries with exponential backoff and jitter. Provider failures return a clean 502 |
+| Observability | Structured JSON logs, Prometheus `/metrics` (token-protected), OpenTelemetry traces, and a provisioned Grafana dashboard (`ops/`). No transcript text or user data is ever emitted |
+
+---
+
+## Repository layout
 
 ```
-backend/app/
-  config.py                typed settings (pydantic-settings)
-  logging_config.py        structured JSON logging
-  transcript_parser.py     timestamp-aware parsing of the raw .txt transcripts
-  interview_guide.py       parses the 6 questions from Interview_Guide.txt
-  providers/                pluggable LLM providers behind one `Provider` protocol
-    openai_compatible_provider.py   Gemini/Groq/HF (OpenAI-compatible) + verbatim-quote verification
-  main.py                  FastAPI routes + citation→timestamp resolution + quote verification
-backend/tests/             pytest suite, provider mocked — no network calls
-backend/evals/             golden-set regression eval — real API calls, run manually
-frontend/src/
-  app/page.tsx              tab shell
-  components/                ExpertQAPanel, ThemesPanel, ChatPanel, CitationChips, ErrorBoundary
+backend/
+  app/
+    main.py                  API routes, citation → timestamp resolution, response guardrail
+    transcript_parser.py     timestamp-aware parsing that never alters the raw text
+    ingestion.py             source ingestion into the evidence store
+    rag/                     chunking, hybrid retrieval, grounding (provider-neutral)
+    providers/               Provider protocol + OpenAI-compatible implementation
+    auth.py                  Supabase JWT verification, tenant and role resolution
+    config.py                typed settings with production safety checks
+    observability.py         metrics and tracing
+    data/                    the 3 transcripts and the interview guide
+  migrations/                Alembic schema migrations
+  tests/                     pytest suite (mocked provider)
+  evals/                     golden-set evaluation harness
+frontend/
+  src/app/                   page shell and tabs
+  src/components/            ExpertQAPanel, ThemesPanel, ChatPanel, CitationChips, AuthGate, ...
+ops/                         Prometheus + Grafana provisioning
+render.yaml                  Render blueprint for the API
+docker-compose.yml           local full stack
 ```
+
+---
+
+## Limitations and next steps
+
+- The vector channel is a lightweight, dependency-free stand-in. A production deployment would use real embeddings (e.g. pgvector).
+- Speaker diarisation comes from the transcript format. Raw audio would need an ASR and diarisation step before ingestion.
+- Evals currently cover this corpus. A larger golden set with domain-reviewed reference answers would be the next investment.

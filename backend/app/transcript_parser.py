@@ -1,6 +1,7 @@
 """Parses a raw transcript .txt file into timestamped segments AND keeps the
-exact raw text around, because Claude's Citations API returns char offsets
-that are only meaningful against the *exact* text we sent it as a document.
+exact raw text around, because a verified quote's char offset (found by a
+literal substring search) is only meaningful against the *exact* text we sent
+to the model.
 
 We never re-format or clean the transcript before sending it to the model —
 whatever bytes we parse here are the same bytes sent as the citation source,

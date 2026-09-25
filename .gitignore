@@ -38,15 +38,6 @@ frontend/*_stderr.log
 .DS_Store
 Thumbs.db
 
-# Playwright MCP scratch output
-.playwright-mcp/
-
-.claude/
-.superpowers/
-CLAUDE.md
-AGENTS.md
-docs/superpowers/
-
 # Private case materials and internal project documentation.
 Files/
 docs/
