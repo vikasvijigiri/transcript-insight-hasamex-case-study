@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, Citation, TranscriptResponse } from "@/lib/api";
 import { isAbortError } from "@/lib/requests";
 
-function TranscriptDrawer({ citation, onClose }: { citation: Citation; onClose: () => void }) {
+export function TranscriptDrawer({ citation, onClose }: { citation: Citation; onClose: () => void }) {
   const [transcript, setTranscript] = useState<TranscriptResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);

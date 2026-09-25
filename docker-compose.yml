@@ -6,8 +6,8 @@ services:
     env_file:
       - ./backend/.env
     volumes:
-      # Persist the pre-computed Q&A/themes cache across container restarts.
-      - backend-cache:/app/app/data/cache
+      # Persist the local SQLite database, which also holds the Q&A/themes cache.
+      - backend-data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s
@@ -26,4 +26,4 @@ services:
         condition: service_healthy
 
 volumes:
-  backend-cache:
+  backend-data:

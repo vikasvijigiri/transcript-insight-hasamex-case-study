@@ -43,10 +43,17 @@ def fake_provider(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def isolated_cache(tmp_path, monkeypatch):
-    """Every test gets its own empty cache directory so tests never read
+    """Every test gets its own empty cache database so tests never read
     stale results from a previous run and never pollute the real cache."""
-    monkeypatch.setattr(cache, "CACHE_DIR", tmp_path)
+    from app.config import get_settings
+
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.setenv("CACHE_DATABASE_URL", f"sqlite:///{tmp_path / 'cache.db'}")
+    get_settings.cache_clear()
+    cache.clear_memory()
     yield tmp_path
+    cache.clear_memory()
+    get_settings.cache_clear()
 
 
 @pytest.fixture

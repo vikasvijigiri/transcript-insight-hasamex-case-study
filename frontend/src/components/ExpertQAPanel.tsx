@@ -1,9 +1,23 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { api, Citation, ExpertMeta, ExpertQAResponse, TranscriptResponse } from "@/lib/api";
 import { isAbortError } from "@/lib/requests";
-import CitationChips from "./CitationChips";
+import CitationChips, { TranscriptDrawer } from "./CitationChips";
+
+// Matches Tailwind's `xl` breakpoint, where the evidence rail is displayed.
+const WIDE_LAYOUT_QUERY = "(min-width: 1280px)";
+
+function subscribeToWideLayout(onChange: () => void) {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const query = window.matchMedia(WIDE_LAYOUT_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function isWideLayout() {
+  return typeof window !== "undefined" && Boolean(window.matchMedia?.(WIDE_LAYOUT_QUERY).matches);
+}
 
 function EvidenceRail({ citation }: { citation: Citation | null }) {
   const [transcript, setTranscript] = useState<TranscriptResponse | null>(null);
@@ -119,6 +133,9 @@ export default function ExpertQAPanel({ experts }: { experts: ExpertMeta[] }) {
   const [data, setData] = useState<ExpertQAResponse | null>(null);
   const [error, setError] = useState<{ id: string; message: string } | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
+  // Below `xl` the rail is hidden, so a selected citation opens as a dialog instead.
+  const wideLayout = useSyncExternalStore(subscribeToWideLayout, isWideLayout, () => false);
+  const closeDrawer = useCallback(() => setSelectedCitation(null), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -308,6 +325,9 @@ export default function ExpertQAPanel({ experts }: { experts: ExpertMeta[] }) {
         }
         citation={selectedCitation}
       />
+      {selectedCitation && !wideLayout && (
+        <TranscriptDrawer citation={selectedCitation} onClose={closeDrawer} />
+      )}
     </div>
   );
 }

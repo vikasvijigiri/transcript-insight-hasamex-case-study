@@ -168,6 +168,21 @@ class AnalysisJob(IdMixin, Base):
     )
 
 
+class AnalysisCacheEntry(Base):
+    """A cached LLM analysis, addressed by the hash of its exact model input.
+
+    Keys carry no tenant: a hit requires the identical source text, so rows are
+    safe to share across users, machines, and deploys.
+    """
+
+    __tablename__ = "analysis_cache"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 Index("ix_source_documents_project", SourceDocument.project_id)
 Index("ix_turns_call_ordinal", Turn.call_id, Turn.ordinal)
 Index("ix_passages_call_ordinal", Passage.call_id, Passage.ordinal)

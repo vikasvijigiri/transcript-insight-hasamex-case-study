@@ -87,7 +87,7 @@ The expensive part of every request is the LLM call (1–3 s). The design goal i
 
 | Mechanism | Where | Effect |
 |---|---|---|
-| **Content-addressed cache** | `cache.build_key`, `main._cache_key` | Key = exact source text + prompt version + provider + model, *not* the user. The first user pays for inference; every later user with the same sources gets a hit. No cross-tenant leak: a hit requires the identical source text, which that caller already holds. Any source, prompt or model change produces a new key. |
+| **Content-addressed cache** | `cache.build_key`, `main._cache_key` | Key = exact source text + prompt version + provider + model, *not* the user. The first user pays for inference; every later user with the same sources gets a hit. No cross-tenant leak: a hit requires the identical source text, which that caller already holds. Any source, prompt or model change produces a new key. Results are stored in the `analysis_cache` table, so they survive deploys; `CACHE_DATABASE_URL` lets several machines share one cache. |
 | **Request coalescing (single-flight)** | `cache.get_or_compute` | N simultaneous requests for the same uncached analysis make **one** LLM call; the others wait for it instead of multiplying cost and hitting provider rate limits. Failed calls are never cached. |
 | **Bounded concurrency + queue** | `OpenAICompatibleProvider._create` | Protects the provider rate limit; bursts wait briefly for a slot instead of failing. |
 | **Versioned retrieval index cache** | `rag/service.project_retriever` | The BM25 + vector index is built once per corpus version and reused, so a question pays only for the search. A new ingested version invalidates it automatically. |

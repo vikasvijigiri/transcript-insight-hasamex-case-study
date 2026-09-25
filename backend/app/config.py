@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     # Persistence is deliberately database-agnostic: SQLite keeps local
     # development frictionless, while the same ORM models run on PostgreSQL.
     database_url: str = Field(default="sqlite:///./data/hasamex.db", alias="DATABASE_URL")
+    # Optional separate home for the analysis cache. Pointing several machines at
+    # one shared database lets them all reuse analyses computed by any of them,
+    # while each keeps its own DATABASE_URL. Empty means use DATABASE_URL.
+    cache_database_url: str = Field(default="", alias="CACHE_DATABASE_URL")
     ingestion_passage_max_tokens: int = Field(
         default=420, ge=100, alias="INGESTION_PASSAGE_MAX_TOKENS"
     )
