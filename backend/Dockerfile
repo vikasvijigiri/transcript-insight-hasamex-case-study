@@ -10,11 +10,10 @@ COPY app ./app
 COPY alembic.ini ./
 COPY migrations ./migrations
 
-# Runs as a non-root user in production. The cache dir must stay writable by
-# that user since /api/experts/{id}/qa and /api/themes write to it on a
-# cache miss.
+# Runs as a non-root user in production. The analysis cache lives in the
+# database; data/ must stay writable only for the local SQLite fallback.
 RUN useradd --create-home appuser \
-    && mkdir -p app/data/cache \
+    && mkdir -p data \
     && chown -R appuser:appuser /app
 USER appuser
 
