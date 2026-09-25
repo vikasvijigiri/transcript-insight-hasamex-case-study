@@ -74,6 +74,9 @@ class ObservabilitySnapshot(BaseModel):
     retrievals: int
     verifiedCitations: int
     rejectedCitations: int
+    llmCalls: int = 0
+    cacheHits: int = 0
+    cacheMisses: int = 0
 
 
 class RetrievalRequest(BaseModel):

@@ -42,6 +42,11 @@ LLM_REQUESTS = Counter(
 LLM_LATENCY = Histogram("hasamex_llm_duration_seconds", "LLM completion latency.", ("provider",))
 LLM_TOKENS = Counter("hasamex_llm_tokens_total", "Reported LLM tokens.", ("provider", "direction"))
 CITATIONS = Counter("hasamex_citations_total", "Citation verification outcomes.", ("outcome",))
+ANALYSIS_CACHE = Counter(
+    "hasamex_analysis_cache_total",
+    "Analysis cache lookups: hit, coalesced (waited on an identical in-flight request) or miss.",
+    ("outcome",),
+)
 IN_FLIGHT_REQUESTS = Gauge("hasamex_http_requests_in_flight", "Requests currently being served.")
 
 
@@ -119,6 +124,14 @@ def dashboard_snapshot() -> dict[str, int]:
         "rejectedCitations": _counter_total(
             CITATIONS, "hasamex_citations_total", {"outcome": "rejected"}
         ),
+        "llmCalls": _counter_total(LLM_REQUESTS, "hasamex_llm_requests_total"),
+        "cacheHits": _counter_total(
+            ANALYSIS_CACHE, "hasamex_analysis_cache_total", {"outcome": "hit"}
+        )
+        + _counter_total(ANALYSIS_CACHE, "hasamex_analysis_cache_total", {"outcome": "coalesced"}),
+        "cacheMisses": _counter_total(
+            ANALYSIS_CACHE, "hasamex_analysis_cache_total", {"outcome": "miss"}
+        ),
     }
 
 
@@ -156,3 +169,7 @@ def record_citations(*, valid: int, rejected: int) -> None:
         CITATIONS.labels("verified").inc(valid)
     if rejected:
         CITATIONS.labels("rejected").inc(rejected)
+
+
+def record_cache(outcome: str) -> None:
+    ANALYSIS_CACHE.labels(outcome).inc()

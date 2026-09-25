@@ -269,13 +269,19 @@ def _project_expert(
     return result.tuple()
 
 
-def _cache_key(kind: str, tenant_id: str, documents: list[DocInput], prompt_version: str) -> str:
-    """Tie cached analysis to the exact corpus and generation configuration."""
-    source_fingerprints = [doc.text for doc in documents]
+def _cache_key(kind: str, documents: list[DocInput], prompt_version: str, *extra: str) -> str:
+    """Content-addressed key: the exact model input and generation configuration.
+
+    Deliberately excludes the tenant/user. Identical sources + prompt + model give an
+    identical grounded result, so the first request pays for inference and every later
+    user reuses it; inference cost stays flat as users grow. A hit requires the exact
+    same source text, so no tenant can obtain content it does not already hold.
+    """
+    source_fingerprints = [f"{doc.expert_id}\x1f{doc.title}\x1f{doc.text}" for doc in documents]
     return cache.build_key(
         kind,
-        tenant_id,
         prompt_version,
+        *extra,
         settings.llm_provider,
         settings.gemini_model if settings.llm_provider == "gemini" else "",
         settings.groq_model if settings.llm_provider == "groq" else "",
@@ -559,24 +565,42 @@ def ask_project(
     documents = selection.documents
     if not documents:
         return ChatResponse(answer="Not addressed in the indexed source material.", citations=[])
-    result = get_provider().ask(
+    # Normalise whitespace/case so trivially different phrasings of the same question
+    # share one cached, grounded answer.
+    normalized_question = " ".join(payload.question.casefold().split())
+    filter_fingerprint = "&".join(f"{k}={v}" for k, v in sorted(payload.filters.items()))
+    cache_key = _cache_key(
+        "ask",
         [document.doc for document in documents],
-        (
-            f'Question from the research team: "{payload.question}"\n\n'
-            "Answer only from the retrieved evidence documents. Do not use prior knowledge or "
-            "make inferences beyond the supplied language. If the evidence does not answer the "
-            'question, answer exactly: "Not addressed in the indexed source material."'
-        ),
-        max_tokens=1000,
+        "project-ask-v1",
+        normalized_question,
+        filter_fingerprint,
     )
-    answer, citations = grounded_answer(result, documents)
-    return ChatResponse(
-        answer=answer,
-        citations=citations,
-        context_mode=(
-            "full_transcript_fallback" if selection.used_full_corpus_fallback else "rag_evidence"
-        ),
-    )
+
+    def compute() -> dict:
+        result = get_provider().ask(
+            [document.doc for document in documents],
+            (
+                f'Question from the research team: "{payload.question}"\n\n'
+                "Answer only from the retrieved evidence documents. Do not use prior knowledge "
+                "or make inferences beyond the supplied language. If the evidence does not "
+                'answer the question, answer exactly: "Not addressed in the indexed source '
+                'material."'
+            ),
+            max_tokens=1000,
+        )
+        answer, citations = grounded_answer(result, documents)
+        return ChatResponse(
+            answer=answer,
+            citations=citations,
+            context_mode=(
+                "full_transcript_fallback"
+                if selection.used_full_corpus_fallback
+                else "rag_evidence"
+            ),
+        ).model_dump()
+
+    return cache.get_or_compute(cache_key, compute)
 
 
 @app.get("/api/experts/{expert_id}/qa", response_model=ExpertQAResponse)
@@ -609,19 +633,36 @@ def expert_qa(
         except KeyError:
             raise HTTPException(404, f"Unknown expert '{expert_id}'") from None
         doc = _doc_for(expert)
-    cache_key = _cache_key("expert_qa", principal.tenant_id, [doc], "interview-guide-v2-rag")
-    if not refresh:
-        cached = cache.read_cache(cache_key)
-        if cached:
-            # Display metadata is resolved at read time so old cached analyses
-            # inherit corrected source-profile names without triggering an LLM call.
-            cached["expert_name"] = expert["name"]
-            return cached
+    cache_key = _cache_key("expert_qa", [doc], "interview-guide-v2-rag")
+    try:
+        result = cache.get_or_compute(
+            cache_key,
+            lambda: _compute_expert_qa(session, principal.tenant_id, expert_id, expert),
+            refresh=refresh,
+        )
+    except _SourcesNotIndexed as pending:
+        # Never cache the placeholder shown before this tenant's sources are indexed.
+        return pending.payload
+    # Display metadata is resolved at read time so cached analyses inherit corrected
+    # source-profile names without triggering an LLM call.
+    result["expert_name"] = expert["name"]
+    return result
 
+
+class _SourcesNotIndexed(Exception):
+    """Carries an uncacheable placeholder response out of a cached computation."""
+
+    def __init__(self, payload: dict) -> None:
+        super().__init__("sources not indexed")
+        self.payload = payload
+
+
+def _compute_expert_qa(session: Session, tenant_id: str, expert_id: str, expert: dict) -> dict:
+    """Run retrieval + one batched grounded LLM call for all interview-guide questions."""
     try:
         selection = context_for_question(
             session,
-            tenant_id=principal.tenant_id,
+            tenant_id=tenant_id,
             project_name="Robotics",
             question=" ".join(QUESTIONS),
             filters={"expert_id": expert_id},
@@ -630,7 +671,7 @@ def expert_qa(
     except LookupError:
         selection = None
     if selection is None or not selection.documents:
-        return ExpertQAResponse(
+        placeholder = ExpertQAResponse(
             expert_id=expert_id,
             expert_name=expert["name"],
             role=expert["role"],
@@ -644,7 +685,8 @@ def expert_qa(
                 for question in QUESTIONS
             ],
             context_mode="rag_evidence",
-        )
+        ).model_dump()
+        raise _SourcesNotIndexed(placeholder)
     provider = get_provider()
     prompts = [
         (
@@ -677,24 +719,11 @@ def expert_qa(
             "full_transcript_fallback" if selection.used_full_corpus_fallback else "rag_evidence"
         ),
     )
-    cache.write_cache(cache_key, response.model_dump())
-    return response
+    return response.model_dump()
 
 
 @app.get("/api/themes", response_model=ThemesResponse)
 def themes(session: DatabaseSession, principal: CurrentPrincipal, refresh: bool = False):
-    # Demo sources make a safe cache key locally. In production, do not key a
-    # tenant's synthesis to static demo files: retrieval must see its newest
-    # ingested versions until analysis runs are persisted/versioned in the DB.
-    docs = [_doc_for(e) for e in EXPERTS] if not settings.auth_required else []
-    cache_key = (
-        _cache_key("themes", principal.tenant_id, docs, "market-synthesis-v2-rag") if docs else None
-    )
-    if cache_key and not refresh:
-        cached = cache.read_cache(cache_key)
-        if cached:
-            return cached
-
     prompt = (
         "These are 3 expert-call transcripts from the same market-research project on "
         "robotic surgery adoption in Europe (France, Germany, UK). Analyse all three "
@@ -727,29 +756,38 @@ def themes(session: DatabaseSession, principal: CurrentPrincipal, refresh: bool 
             citations=[],
             context_mode="rag_evidence",
         )
-    result = get_provider().ask([item.doc for item in selection.documents], prompt, max_tokens=1600)
-    common, common_citations = grounded_answer(result, selection.documents)
+    # Retrieval runs first (cheap, no LLM) so the key reflects the tenant's newest
+    # ingested source versions; the expensive synthesis is then shared by every user
+    # whose sources are identical.
+    documents = [item.doc for item in selection.documents]
+    cache_key = _cache_key("themes", documents, "market-synthesis-v2-rag")
 
-    text = result.answer_text
-    common, _, disagree = text.partition("DISAGREEMENTS:")
-    common = common.replace("COMMON THEMES:", "").strip()
-    disagree = disagree.strip()
+    def compute() -> dict:
+        result = get_provider().ask(documents, prompt, max_tokens=1600)
+        _, common_citations = grounded_answer(result, selection.documents)
 
-    if not common_citations:
-        common = "Not addressed in the indexed source material."
-        disagree = "Not addressed in the indexed source material."
+        common, _, disagree = result.answer_text.partition("DISAGREEMENTS:")
+        common = common.replace("COMMON THEMES:", "").strip()
+        disagree = disagree.strip()
 
-    response = ThemesResponse(
-        common_themes=common,
-        disagreements=disagree,
-        citations=common_citations,
-        context_mode=(
-            "full_transcript_fallback" if selection.used_full_corpus_fallback else "rag_evidence"
-        ),
+        if not common_citations:
+            common = "Not addressed in the indexed source material."
+            disagree = "Not addressed in the indexed source material."
+
+        return ThemesResponse(
+            common_themes=common,
+            disagreements=disagree,
+            citations=common_citations,
+            context_mode=(
+                "full_transcript_fallback"
+                if selection.used_full_corpus_fallback
+                else "rag_evidence"
+            ),
+        ).model_dump()
+
+    return cache.get_or_compute(
+        cache_key, compute, refresh=refresh, cacheable=lambda payload: bool(payload["citations"])
     )
-    if cache_key:
-        cache.write_cache(cache_key, response.model_dump())
-    return response
 
 
 @app.post("/api/chat", response_model=ChatResponse)

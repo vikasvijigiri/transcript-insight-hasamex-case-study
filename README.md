@@ -4,8 +4,13 @@
 
 Built for the Hasamex AI Engineer case study: three expert calls (France, Germany, UK) on the European robotic-surgery market, analysed against a six-question interview guide.
 
-**Live demo:** https://transcript-insight-hasamex-case-stu.vercel.app
-Sign in with Google. The API runs on Render's free tier, so the first request after a period of inactivity can take 30–60 seconds while the instance wakes up.
+| | |
+|---|---|
+| **Live app** | [transcript-insight-hasamex-case-stu.vercel.app](https://transcript-insight-hasamex-case-stu.vercel.app) (sign in with Google) |
+| **Source code** | [github.com/vikasvijigiri/transcript-insight-hasamex-case-study](https://github.com/vikasvijigiri/transcript-insight-hasamex-case-study) |
+| **Run it locally** | [Instructions below](#run-locally): backend + frontend in two terminals, or `docker compose up --build` |
+
+> The API runs on Render's free tier, so the first request after a period of inactivity can take 30–60 seconds while the instance wakes up.
 
 ---
 
@@ -77,13 +82,34 @@ Providers sit behind one `Provider` protocol and an OpenAI-compatible client, so
 
 None of these offer native citations, so grounding is enforced by the application. That's also why answer quality doesn't depend on any one vendor's features.
 
-### Scaling from 3 to 30+ transcripts
-Most of the production path is already in place: persistent ingestion, hybrid retrieval, per-tenant isolation and metadata filters (such as market or expert). To go further:
+### Scaling: flat inference cost as users grow
+The expensive part of every request is the LLM call (1–3 s). The design goal is that **the number of LLM calls grows with the number of *distinct questions over distinct sources*, not with the number of users**, so latency stays close to constant as usage grows.
 
-- **Retrieval:** swap the in-process BM25 and vector adapters for managed ones, e.g. PostgreSQL full-text search plus pgvector with contextual embeddings and a cross-encoder reranker. The retrieval interfaces (`LexicalRetriever`, `VectorRetriever`, `Reranker`) are already defined for this.
-- **Synthesis:** move from a single cross-expert call to **map-reduce**: extract themes per transcript in parallel, then cluster and cite them in a reduce pass. Cost grows linearly and each step stays within context limits.
-- **Throughput and cost:** answers are cached under content-hashed keys (Redis, or disk locally), LLM concurrency is bounded, and retries use backoff. The high-volume extraction pass can go to a cheaper model while synthesis stays on a stronger one.
-- **Ingestion at volume:** an upload queue with background workers, and immutable source versions so citations and evals stay reproducible.
+| Mechanism | Where | Effect |
+|---|---|---|
+| **Content-addressed cache** | `cache.build_key`, `main._cache_key` | Key = exact source text + prompt version + provider + model, *not* the user. The first user pays for inference; every later user with the same sources gets a hit. No cross-tenant leak: a hit requires the identical source text, which that caller already holds. Any source, prompt or model change produces a new key. |
+| **Request coalescing (single-flight)** | `cache.get_or_compute` | N simultaneous requests for the same uncached analysis make **one** LLM call; the others wait for it instead of multiplying cost and hitting provider rate limits. Failed calls are never cached. |
+| **Bounded concurrency + queue** | `OpenAICompatibleProvider._create` | Protects the provider rate limit; bursts wait briefly for a slot instead of failing. |
+| **Versioned retrieval index cache** | `rag/service.project_retriever` | The BM25 + vector index is built once per corpus version and reused, so a question pays only for the search. A new ingested version invalidates it automatically. |
+| **Bounded context** | `rag/service.context_for_question` | Above `RAG_FULL_CORPUS_MAX_CHARACTERS`, only the top retrieved evidence (≤ 8 passages, ≤ 2 per expert) reaches the model, so prompt size and LLM latency do not grow with corpus size. |
+| **Stateless API** | Redis via `REDIS_URL` | Any number of API replicas share one cache, so capacity scales horizontally. |
+
+**Measured locally** (`backend/scripts/load_test.py`, Groq `gpt-oss-120b`, real LLM):
+
+| Scenario | Users | p50 | LLM calls |
+|---|---|---|---|
+| Cold burst: new question, all at once | 50 | 1.6 s (≈ one LLM call) | **1** |
+| Cached, 1 API process | 10 → 100 | 97 → 459 ms | 0 |
+| Cached, 4 API workers | 10 → 200 | 57 → 39 ms (flat) | 0 |
+
+Without coalescing, the 50-user cold burst would make 50 LLM calls, queued behind the concurrency limit and throttled by the provider.
+
+**Next steps at larger scale:**
+- **Retrieval:** swap the in-process BM25 and hashed-vector adapters for managed ones, e.g. PostgreSQL full-text search plus pgvector embeddings and a cross-encoder reranker. The interfaces (`LexicalRetriever`, `VectorRetriever`, `Reranker`) are already defined.
+- **Precompute:** run the interview-guide and theme analyses as background jobs at ingestion time (the `AnalysisJob` table exists), so no user ever waits on a cold call.
+- **Synthesis:** map-reduce themes (per-transcript extraction in parallel, then a cited reduce pass) so cost grows linearly with transcripts.
+- **Cross-replica coalescing:** a Redis `SET NX` lock per cache key; today coalescing is per process.
+- **Semantic question cache:** match paraphrased questions by embedding similarity, not only exact normalised text.
 
 ---
 
@@ -92,6 +118,12 @@ Most of the production path is already in place: persistent ingestion, hybrid re
 **Prerequisites:** Python 3.12+, Node.js 20+, and an API key for one provider (Gemini or Groq; both have free tiers).
 
 Local mode needs no authentication or external database. It uses SQLite and seeds the sample corpus automatically.
+
+```bash
+# 0. Clone
+git clone https://github.com/vikasvijigiri/transcript-insight-hasamex-case-study.git
+cd transcript-insight-hasamex-case-study
+```
 
 ```bash
 # 1. Backend
@@ -127,6 +159,9 @@ cd frontend && npm run lint && npx tsc --noEmit && npm test && npm run build
 
 # Model evaluation: real API calls, run manually
 cd backend && python -m evals.run_eval --compare gemini groq
+
+# Load test: latency and LLM calls as concurrent users grow (API running locally)
+cd backend && python scripts/load_test.py --base http://127.0.0.1:8000 --users 1 10 50 100
 ```
 
 - **Tests:** a pytest suite covering transcript parsing, chunking, retrieval, grounding, ingestion, caching and the full API against a mocked provider, plus Vitest and Testing Library tests for the key UI components.

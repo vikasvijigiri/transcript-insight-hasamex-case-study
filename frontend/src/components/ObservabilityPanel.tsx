@@ -9,6 +9,9 @@ const initial: ObservabilitySnapshot = {
   retrievals: 0,
   verifiedCitations: 0,
   rejectedCitations: 0,
+  llmCalls: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
 };
 
 export default function ObservabilityPanel() {
@@ -42,6 +45,9 @@ export default function ObservabilityPanel() {
     [snapshot.retrievals, "hybrid retrievals"],
     [snapshot.verifiedCitations, "verified citations"],
     [snapshot.rejectedCitations, "rejected citations"],
+    [snapshot.llmCalls, "LLM calls"],
+    [snapshot.cacheHits, "cache hits"],
+    [snapshot.cacheMisses, "cache misses"],
   ];
 
   return (
@@ -64,15 +70,25 @@ export default function ObservabilityPanel() {
           {cards.map(([value, label]) => (
             <div key={String(label)} className="rounded-xl bg-slate-50 px-4 py-4">
               <p className="text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
-              <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+              <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                {label}
+              </p>
             </div>
           ))}
         </div>
       )}
       <p className="mt-5 text-xs text-slate-500">
-        This panel is the live local dashboard. Grafana is provisioned for the production Compose stack.
+        This panel is the live local dashboard. Grafana is provisioned for the production Compose
+        stack.
         {" · "}
-        <a className="font-medium text-[#2c6b65] underline underline-offset-2" href="http://localhost:8000/metrics" target="_blank" rel="noreferrer">Prometheus metrics</a>
+        <a
+          className="font-medium text-[#2c6b65] underline underline-offset-2"
+          href="http://localhost:8000/metrics"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Prometheus metrics
+        </a>
       </p>
     </section>
   );

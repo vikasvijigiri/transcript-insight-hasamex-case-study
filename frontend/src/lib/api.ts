@@ -2,7 +2,8 @@ import { supabase } from "@/lib/supabase";
 import { ApiError, withTimeout } from "@/lib/requests";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "");
-const API_BASE = configuredApiBase ?? (process.env.NODE_ENV === "development" ? "http://localhost:8000" : null);
+const API_BASE =
+  configuredApiBase ?? (process.env.NODE_ENV === "development" ? "http://localhost:8000" : null);
 
 export type Citation = {
   expert_id: string;
@@ -59,6 +60,9 @@ export type ObservabilitySnapshot = {
   retrievals: number;
   verifiedCitations: number;
   rejectedCitations: number;
+  llmCalls: number;
+  cacheHits: number;
+  cacheMisses: number;
 };
 
 export type SampleCorpusResponse = {
@@ -69,12 +73,19 @@ export type SampleCorpusResponse = {
 
 async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (!API_BASE) {
-    throw new ApiError("The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.");
+    throw new ApiError(
+      "The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.",
+    );
   }
   return withTimeout(async (requestSignal) => {
-    const res = await fetch(`${API_BASE}${path}`, { signal: requestSignal, headers: await authHeaders() });
-    if (res.status === 401) throw new ApiError("Your session has expired. Please sign in again.", 401);
-    if (!res.ok) throw new ApiError("The research service is unavailable. Please try again.", res.status);
+    const res = await fetch(`${API_BASE}${path}`, {
+      signal: requestSignal,
+      headers: await authHeaders(),
+    });
+    if (res.status === 401)
+      throw new ApiError("Your session has expired. Please sign in again.", 401);
+    if (!res.ok)
+      throw new ApiError("The research service is unavailable. Please try again.", res.status);
     return res.json() as Promise<T>;
   }, signal);
 }
@@ -101,15 +112,19 @@ export const api = {
   importSampleCorpus: () =>
     withTimeout(async (signal) => {
       if (!API_BASE) {
-        throw new ApiError("The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.");
+        throw new ApiError(
+          "The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.",
+        );
       }
       const response = await fetch(`${API_BASE}/api/projects/Robotics/sample-corpus`, {
         method: "POST",
         signal,
         headers: await authHeaders(),
       });
-      if (response.status === 401) throw new ApiError("Your session has expired. Please sign in again.", 401);
-      if (!response.ok) throw new ApiError("Unable to import the case-study calls right now.", response.status);
+      if (response.status === 401)
+        throw new ApiError("Your session has expired. Please sign in again.", 401);
+      if (!response.ok)
+        throw new ApiError("Unable to import the case-study calls right now.", response.status);
       return response.json() as Promise<SampleCorpusResponse>;
     }),
   expertQA: (expertId: string, signal?: AbortSignal) =>
@@ -122,7 +137,9 @@ export const api = {
   },
   chat: async (question: string): Promise<ChatResponse> => {
     if (!API_BASE) {
-      throw new ApiError("The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.");
+      throw new ApiError(
+        "The application is missing NEXT_PUBLIC_API_BASE. Configure the deployed backend URL and rebuild.",
+      );
     }
     return withTimeout(async (signal) => {
       const res = await fetch(`${API_BASE}/api/projects/Robotics/ask`, {
@@ -131,7 +148,8 @@ export const api = {
         headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ question }),
       });
-      if (res.status === 401) throw new ApiError("Your session has expired. Please sign in again.", 401);
+      if (res.status === 401)
+        throw new ApiError("Your session has expired. Please sign in again.", 401);
       if (!res.ok) throw new ApiError("Unable to answer that question right now.", res.status);
       return res.json() as Promise<ChatResponse>;
     });

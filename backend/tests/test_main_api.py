@@ -55,6 +55,9 @@ def test_authenticated_observability_dashboard_returns_aggregate_metrics(client)
         "retrievals",
         "verifiedCitations",
         "rejectedCitations",
+        "llmCalls",
+        "cacheHits",
+        "cacheMisses",
     }
 
 
@@ -275,3 +278,58 @@ def test_chat_abstains_when_the_model_answer_has_no_verifiable_citation(client, 
     body = res.json()
     assert body["answer"] == "Not addressed in the indexed source material."
     assert body["citations"] == []
+
+
+def test_cache_key_is_content_addressed_not_per_user():
+    """Identical sources share one analysis across users; changed sources never do."""
+    from app.main import _cache_key
+    from app.providers.types import DocInput
+
+    doc = DocInput(expert_id="france", title="France", text="00:00\nDr. Martin: Budgets.\n")
+    edited = doc.model_copy(update={"text": doc.text + "Dr. Martin: Training.\n"})
+    assert _cache_key("expert_qa", [doc], "v1") == _cache_key("expert_qa", [doc], "v1")
+    assert _cache_key("expert_qa", [doc], "v1") != _cache_key("expert_qa", [edited], "v1")
+    assert _cache_key("expert_qa", [doc], "v1") != _cache_key("expert_qa", [doc], "v2")
+
+
+def test_repeated_question_is_answered_from_cache(client, fake_provider):
+    quote = "Adoption is growing, but it is still concentrated in larger academic hospitals"
+    fake_provider.queue(
+        AskResult(
+            answer_text="Adoption is concentrated in larger hospitals.",
+            raw_citations=[RawCitation(document_index=0, cited_text=quote, start_char_index=0)],
+        )
+    )
+    first = client.post("/api/chat", json={"question": "How is adoption in France?"}).json()
+    calls = len(fake_provider.calls)
+    # Same question with different case/spacing: served from cache, no new LLM call.
+    second = client.post("/api/chat", json={"question": "  how is ADOPTION in france? "}).json()
+    assert len(fake_provider.calls) == calls
+    assert first == second
+    assert first["citations"]
+
+
+def test_themes_are_cached_across_requests(client, fake_provider):
+    # One real sentence per transcript, offered against every document position; only
+    # the ones that verify survive, so the synthesis is grounded whatever the order.
+    quotes = [
+        "Adoption is growing, but it is still concentrated in larger academic hospitals",
+        "Large university hospitals are much more advanced",
+        "Adoption is increasing, and in some larger NHS trusts",
+    ]
+    fake_provider.queue(
+        AskResult(
+            answer_text="COMMON THEMES:\n1. Growth.\nDISAGREEMENTS:\n1. Pace.",
+            raw_citations=[
+                RawCitation(document_index=i, cited_text=quote, start_char_index=0)
+                for i in range(len(quotes))
+                for quote in quotes
+            ],
+        )
+    )
+    first = client.get("/api/themes").json()
+    calls = len(fake_provider.calls)
+    second = client.get("/api/themes").json()
+    assert len(fake_provider.calls) == calls
+    assert first == second
+    assert first["citations"]

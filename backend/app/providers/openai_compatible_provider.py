@@ -83,6 +83,7 @@ class OpenAICompatibleProvider:
         self.name = name
         self._model = model
         self._max_retries = max_retries
+        self._queue_timeout = timeout_seconds
         self._inflight = BoundedSemaphore(max_concurrent_requests)
         # SDK retries are disabled: Tenacity below owns the bounded retry policy.
         self._client = OpenAI(
@@ -90,7 +91,10 @@ class OpenAICompatibleProvider:
         )
 
     def _create(self, **kwargs):
-        if not self._inflight.acquire(blocking=False):
+        # Bounded concurrency protects the provider's rate limit. A burst waits in a
+        # short queue for a free slot instead of failing immediately; only a request
+        # that cannot get a slot within the timeout is rejected.
+        if not self._inflight.acquire(timeout=self._queue_timeout):
             raise ProviderCallError("LLM capacity is busy; please retry shortly")
         retryer = Retrying(
             retry=retry_if_exception_type(_RETRYABLE),

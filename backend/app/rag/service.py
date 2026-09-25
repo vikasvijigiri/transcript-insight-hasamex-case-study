@@ -5,8 +5,10 @@ substitute managed BM25/vector/reranker adapters while preserving this evidence
 bundle contract and its ACL-first project filter.
 """
 
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
+from threading import Lock
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -54,25 +56,72 @@ class ContextSelection:
     used_full_corpus_fallback: bool
 
 
+# Built retrievers keyed by (tenant, project, exact set of latest document versions).
+# Building one loads every passage and indexes it (BM25 + vectors), which is O(corpus);
+# reusing it makes each question pay only for the search itself. Any new ingested
+# version changes the key, so a stale index is never served.
+_RETRIEVER_CACHE: OrderedDict[tuple[str, str, tuple[str, ...]], HybridRetriever] = OrderedDict()
+_RETRIEVER_CACHE_LOCK = Lock()
+_RETRIEVER_CACHE_SIZE = 64
+
+
+def _latest_version_subquery():
+    return (
+        select(func.max(DocumentVersion.version_number))
+        .where(DocumentVersion.source_document_id == SourceDocument.id)
+        .correlate(SourceDocument)
+        .scalar_subquery()
+    )
+
+
 def project_retriever(
     session: Session,
     *,
     tenant_id: str,
     project_name: str,
 ) -> HybridRetriever:
-    """Build an ACL-scoped retriever from the latest ingested project passages."""
+    """Return an ACL-scoped retriever over the latest ingested project passages.
+
+    A cheap version-id query decides whether a cached index is still current.
+    """
     project = session.scalar(
         select(Project).where(Project.tenant_id == tenant_id, Project.name == project_name)
     )
     if project is None:
         raise LookupError("Project not found or not accessible")
 
-    latest_version = (
-        select(func.max(DocumentVersion.version_number))
-        .where(DocumentVersion.source_document_id == SourceDocument.id)
-        .correlate(SourceDocument)
-        .scalar_subquery()
+    latest_version = _latest_version_subquery()
+    version_ids = tuple(
+        sorted(
+            session.scalars(
+                select(DocumentVersion.id)
+                .join(SourceDocument, DocumentVersion.source_document_id == SourceDocument.id)
+                .where(
+                    SourceDocument.project_id == project.id,
+                    DocumentVersion.version_number == latest_version,
+                )
+            ).all()
+        )
     )
+    cache_key = (tenant_id, project_name, version_ids)
+    with _RETRIEVER_CACHE_LOCK:
+        cached = _RETRIEVER_CACHE.get(cache_key)
+        if cached is not None:
+            _RETRIEVER_CACHE.move_to_end(cache_key)
+            return cached
+
+    retriever = _build_retriever(session, tenant_id=tenant_id, project=project)
+    with _RETRIEVER_CACHE_LOCK:
+        _RETRIEVER_CACHE[cache_key] = retriever
+        _RETRIEVER_CACHE.move_to_end(cache_key)
+        while len(_RETRIEVER_CACHE) > _RETRIEVER_CACHE_SIZE:
+            _RETRIEVER_CACHE.popitem(last=False)
+    return retriever
+
+
+def _build_retriever(session: Session, *, tenant_id: str, project: Project) -> HybridRetriever:
+    """Load the project's latest passages and index them for hybrid retrieval."""
+    latest_version = _latest_version_subquery()
     rows = session.execute(
         select(DbPassage, DbParentSection, Call)
         .join(DbParentSection, DbPassage.parent_section_id == DbParentSection.id)
